@@ -190,6 +190,86 @@ color:var(--muted);
 font-size:12px}
 .repo-switch>.muted {
 margin-inline-start:auto}
+.workspace-picker {
+min-width:0;
+margin-bottom:28px}
+.workspace-picker select {
+width:100%;
+max-width:100%;
+font-size:12px;
+background:#fff;
+text-overflow:ellipsis}
+.workspace-picker .text-button {
+margin-top:8px;
+font-size:12px;
+min-height:32px;
+padding-inline:4px}
+.global-run-banner {
+display:flex;
+align-items:center;
+justify-content:space-between;
+flex-wrap:wrap;
+gap:8px 16px;
+padding:12px 16px;
+margin-bottom:24px;
+border:1px solid #b7cfdc;
+border-radius:6px;
+background:#edf4fa;
+color:#2e5672;
+font-size:13px}
+.global-run-banner .text-button {
+font-size:12px;
+color:#245777}
+.branch-field .field-help {
+font-size:10px;
+color:#5f6c64;
+margin-top:8px;
+line-height:1.6;
+overflow-wrap:anywhere}
+.workspace-management {
+margin-top:24px;
+padding-top:20px;
+border-top:1px solid var(--line)}
+.workspace-management h3 {
+font-size:14px;
+font-weight:600}
+.workspace-management>p {
+font-size:12px;
+color:var(--muted);
+margin-top:4px}
+.workspace-management ul {
+list-style:none;
+padding:0;
+margin:12px 0 0;
+max-height:240px;
+overflow:auto}
+.workspace-management li {
+display:flex;
+align-items:center;
+justify-content:space-between;
+gap:16px;
+padding:12px 0;
+border-top:1px solid var(--line)}
+.workspace-management li>span:first-child {
+min-width:0;
+overflow-wrap:anywhere}
+.workspace-management strong {
+display:block;
+font-size:13px;
+font-weight:550}
+.workspace-management small {
+display:block;
+font-size:11px;
+color:var(--muted);
+margin-top:4px}
+.workspace-management .remove-workspace {
+color:#a4302c;
+font-size:12px;
+flex-shrink:0}
+.workspace-running {
+color:#27684b;
+font-size:11px;
+white-space:nowrap}
 .nav-item {
 width:100%;
 justify-content:start;
@@ -1079,8 +1159,26 @@ font-size:21px}
 .brand-mark {
 width:28px;
 height:32px}
-.workspace-label,.repo-switch,.sidebar-bottom {
+.workspace-label,.sidebar-bottom {
 display:none}
+.workspace-picker {
+order:3;
+flex-basis:100%;
+display:flex;
+align-items:center;
+gap:12px;
+margin:0}
+.workspace-picker select {
+flex:1;
+width:0;
+font-size:12px}
+.workspace-picker .text-button {
+margin:0;
+min-height:44px;
+white-space:nowrap}
+.sidebar {
+flex-wrap:wrap;
+row-gap:12px}
 .sidebar nav {
 display:flex;
 margin-inline-start:auto;

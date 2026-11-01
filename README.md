@@ -1,6 +1,6 @@
 # Dispatch
 
-A local GUI for manually running GitHub Actions workflows. Connect a GitHub repository, see each workflow’s latest run, and start a workflow with one click. Enable **Allow multiple workflows** to build an ordered batch; the server starts the next workflow only after the previous one succeeds.
+A local GUI for manually running GitHub Actions workflows. Save repository workspaces, see each workflow’s latest run, and start a workflow with one click. Enable **Allow multiple workflows** to build an ordered batch; the server starts the next workflow only after the previous one succeeds.
 
 ## Start
 
@@ -21,18 +21,26 @@ Open **http://127.0.0.1:3000** and click **Connect a repository** to load your w
    ```
    Alternatively, provide `GH_TOKEN` or `GITHUB_TOKEN` in the server environment. Do not put a token in browser storage or commit it to a file.
 2. If you authenticated after starting the app, restart it so it picks up the credentials.
-3. Click **Connect a repository** (or **Repository settings**), enter `https://github.com/owner/repository` or `owner/repository`, and connect.
+3. Click **Connect a repository** (or **+ Add workspace**), enter `https://github.com/owner/repository` or `owner/repository`, and connect.
 
 For a fine-grained personal access token, grant the target repository **Actions: read and write**, **Contents: read**, and **Metadata: read**. Your GitHub account must also have permission to run its workflows. Organization/SSO restrictions may require additional approval. Only GitHub.com is supported.
 
-Credentials remain on the server. Only the repository name is saved in `.data/config.json`. You can also bootstrap the first repository using `GITHUB_REPO=owner/repository`; a saved repository takes precedence.
+Credentials remain on the server. Workspace IDs, repository names, branch preferences, and the last selected workspace are saved in `.data/config.json`. You can bootstrap the first workspace using `GITHUB_REPO=owner/repository` when no saved configuration exists. Existing single-repository settings migrate automatically.
+
+## Repository workspaces
+
+- Use **+ Add workspace** to save another repository, then switch using the sidebar selector. Adding an already saved repository selects its existing workspace.
+- Each workspace has its own workflows, saved branch, and server-side queue. Selections, filters, and input drafts stay separate while switching within a browser tab; reloading clears these drafts.
+- You can browse other workspaces while a queue runs. A banner identifies the running repository and takes you back to its queue. Only **one queue runs at a time across all workspaces**.
+- Each browser tab keeps its own viewed workspace. New tabs without a workspace URL open the last selected workspace.
+- Open **Workspace settings** to remove saved workspaces. Removal only changes local settings, never the GitHub repository. A workspace with a running queue cannot be removed.
 
 ## Run workflows
 
 - Use the play button on any active workflow for a single run, or select a workflow and click **Run workflow**.
 - Single selection is the default. Check **Allow multiple workflows** to select a batch. This enables multiple *selections*, not parallel execution.
 - Selection order is execution order. Use the queue’s up/down buttons to reorder, or remove individual items.
-- Choose an existing **branch**; tags and commit SHAs are not supported. The repository’s default branch is selected initially.
+- Choose an existing **branch**; tags and commit SHAs are not supported. The repository’s default branch is selected initially; branch changes are validated and saved per workspace.
 - Workflow inputs are read from the YAML at that branch. Required inputs, choices, booleans, numbers, environment names, and defaults are supported. Use **Run options** to prepare values, or enter them when prompted at run time.
 - The workflow must have `workflow_dispatch` on the default branch. For example:
   ```yaml
@@ -70,7 +78,7 @@ The separate result badge indicates success, failure, cancellation, or progress.
 ## Queue behavior and safety
 
 - Queues run on the **local server**, so closing or refreshing the browser does not interrupt a batch. Keep the server process and its machine running.
-- Every workflow and input is validated before the first dispatch. Overlapping batch requests are rejected even from multiple browser tabs.
+- Every workflow and input is validated before the first dispatch. Overlapping batch requests are rejected across all workspaces, even from multiple browser tabs. Existing active runs in other saved repositories block a new batch.
 - Before each dispatch, the server waits for existing active repository runs. The app never intentionally runs its selected workflows in parallel.
 - A failed, canceled, timed-out, skipped, or otherwise non-successful run stops the batch. Pending workflows are skipped.
 - **Stop after current workflow** skips pending items. It does **not** cancel a run already dispatched to GitHub. Use GitHub to cancel that run if necessary.
@@ -100,12 +108,13 @@ npx playwright install chromium  # Only needed if Chromium is not already instal
 npm run test:ui           # Browser tests with a test-only fake GitHub adapter
 ```
 
-Browser tests cover the main interactions, sequential execution across a reload, input forms, error recovery, keyboard controls, automated accessibility checks, mobile/320px layouts, long untrusted names, RTL, and 200% zoom. Screenshots are written to the ignored `artifacts/` directory. Tests do not dispatch real GitHub workflows.
+Browser tests cover workspace switching, isolated drafts, saved branches, cross-workspace queue blocking, multiple tabs, safe removal, sequential execution across a reload, input forms, error recovery, keyboard controls, automated accessibility checks, mobile/320px layouts, long untrusted names, RTL, and 200% zoom. Screenshots are written to the ignored `artifacts/` directory. Tests do not dispatch real GitHub workflows.
 
 ## Files
 
 - `server.mjs`: local HTTP/API entry point
 - `lib/github.mjs`: authentication, GitHub API, YAML schemas, input validation
-- `lib/runner.mjs`: configuration, sequential execution and run tracking
+- `lib/runner.mjs`: sequential execution and run tracking
+- `lib/workspaces.mjs`: saved workspaces, configuration migration, global queue lock
 - `public/`: dependency-free browser interface
 - `test/`: unit, integration, and Playwright tests

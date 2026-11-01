@@ -3,7 +3,7 @@ import { readFile, realpath, stat } from 'node:fs/promises';
 import { resolve, sep, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ApiError, GitHubAdapter, resolveAuth } from './lib/github.mjs';
-import { WorkflowRunner, readRepository } from './lib/runner.mjs';
+import { WorkspaceManager, readWorkspaceConfig } from './lib/workspaces.mjs';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const MIME = {
@@ -77,7 +77,7 @@ export async function createApplication({ rootDir = ROOT, env = process.env, ada
   if (!runner) {
     adapter ||= new GitHubAdapter(await resolveAuth(env));
     const configPath = join(env.DATA_DIR ? resolve(rootDir, env.DATA_DIR) : join(rootDir, '.data'), 'config.json');
-    runner = new WorkflowRunner({ adapter, configPath, repository: await readRepository(configPath, env), ...runnerOptions });
+    runner = new WorkspaceManager({ adapter, configPath, config: await readWorkspaceConfig(configPath, env), runnerOptions });
   }
   const server = http.createServer({ requestTimeout: 20000, headersTimeout: 10000, maxHeaderSize: 16384 }, async (request, response) => {
     response.setHeader('X-Content-Type-Options', 'nosniff');
@@ -92,14 +92,20 @@ export async function createApplication({ rootDir = ROOT, env = process.env, ada
       const url = new URL(request.url, `http://${host}`);
       if (request.method === 'POST') checkPost(request, host);
       if (pathname.startsWith('/api/')) {
-        if (request.method === 'GET' && pathname === '/api/state') return json(response, 200, await runner.refresh({ force: url.searchParams.get('refresh') === '1' }));
+        const workspaceId = url.searchParams.has('workspaceId') ? url.searchParams.get('workspaceId') : undefined;
+        if (request.method === 'GET' && pathname === '/api/state') return json(response, 200, await runner.refresh({ workspaceId, force: url.searchParams.get('refresh') === '1' }));
         const inputMatch = /^\/api\/workflows\/(\d+)\/inputs$/.exec(pathname);
-        if (request.method === 'GET' && inputMatch) return json(response, 200, await runner.inputs(Number(inputMatch[1]), url.searchParams.get('ref')));
+        if (request.method === 'GET' && inputMatch) return json(response, 200, await runner.inputs(Number(inputMatch[1]), url.searchParams.get('ref') ?? undefined, workspaceId));
         if (request.method === 'POST') {
           const body = await jsonBody(request);
           if (pathname === '/api/config') return json(response, 200, await runner.configure(body.repository));
+          if (runner instanceof WorkspaceManager) {
+            if (pathname === '/api/workspaces/select') return json(response, 200, await runner.select(body.workspaceId));
+            if (pathname === '/api/workspaces/branch') return json(response, 200, await runner.saveBranch(body.workspaceId, body.branch));
+            if (pathname === '/api/workspaces/remove') return json(response, 200, await runner.remove(body.workspaceId));
+          }
           if (pathname === '/api/queue') return json(response, 202, await runner.startQueue(body));
-          if (pathname === '/api/queue/stop') return json(response, 200, runner.stop());
+          if (pathname === '/api/queue/stop') return json(response, 200, runner.stop(body.workspaceId));
         }
         throw new ApiError('API route not found.', 404);
       }
@@ -109,7 +115,7 @@ export async function createApplication({ rootDir = ROOT, env = process.env, ada
       if (response.headersSent) { response.destroy(); return; }
       const status = error instanceof ApiError ? error.status : 500;
       const message = error instanceof ApiError ? runner.message(error) : 'Unexpected server error.';
-      json(response, status, { error: message });
+      json(response, status, { error: message, ...(error.code === 'WORKSPACE_NOT_FOUND' ? { code: error.code } : {}) });
     }
   });
   return {

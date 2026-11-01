@@ -30,10 +30,17 @@ let inputValues = {};
 let dialogWorkflows = [];
 let runAfterInputs = false;
 let initialized = false;
+let workspaceId = new URL(location.href).searchParams.get('workspace') || undefined;
+let workspaceViews = new Map();
+let workspaceSignature = '';
+let refreshWorkspaceId;
+let refreshGeneration = 0;
+let switching = false;
+let savingBranch;
 let queueActionsVisible = false;
 function renderMobileBar() {
   $('mobile-run-bar').hidden = !selected.length || Boolean(state?.queue.running) || queueActionsVisible;
-  $('mobile-run').disabled = blocked() || !$('branch').value.trim();
+  $('mobile-run').disabled = runBlocked() || !$('branch').value.trim();
   $('mobile-run').textContent = busy ? 'Preparing…' : `Run ${selected.length === 1 ? 'workflow' : `${selected.length} workflows`}`;
   $('mobile-review').textContent = `${selected.length} selected · Review queue`;
 }
@@ -43,16 +50,27 @@ function announce(message) { $('announcement').textContent = message; }
 function error(message) { $('error-message').textContent = message; $('error-banner').hidden = false; }
 function clearError() { $('error-banner').hidden = true; }
 async function api(path, body) {
+  if (body === undefined && workspaceId && (path.startsWith('/api/state') || path.startsWith('/api/workflows/'))) {
+    const url = new URL(path, location.origin);
+    url.searchParams.set('workspaceId', workspaceId);
+    path = `${url.pathname}${url.search}`;
+  }
   const response = await fetch(path, {
     ...(body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
     signal: AbortSignal.timeout(90_000)
   });
   let data;
   try { data = await response.json(); } catch { throw new Error('The local server did not respond. Check that it is still running.'); }
-  if (!response.ok) throw new Error(data.error || `Request failed (${response.status}).`);
+  if (!response.ok) {
+    const failure = new Error(data.error || `Request failed (${response.status}).`);
+    failure.status = response.status;
+    failure.code = data.code;
+    throw failure;
+  }
   return data;
 }
 function blocked() { return busy || state?.queue.running; }
+function runBlocked() { return blocked() || Boolean(state?.globalQueue); }
 function safeUrl(url) { try { const parsed = new URL(url); return parsed.protocol === 'https:' && parsed.hostname === 'github.com' ? esc(parsed.href) : ''; } catch { return ''; } }
 function lastRunMarkup(run) {
   if (!run) return '<span class="last-run muted">Never run<small>No run history</small></span>';
@@ -78,7 +96,7 @@ function visibleWorkflows() {
 function renderTable(force = false) {
   if (!state) return;
   const workflows = visibleWorkflows();
-  const signature = JSON.stringify([workflows, selected, blocked(), page, Math.floor(Date.now() / 60_000)]);
+  const signature = JSON.stringify([workflows, selected, blocked(), runBlocked(), workspaceId, page, Math.floor(Date.now() / 60_000)]);
   if (signature === tableSignature && !force) return;
   tableSignature = signature;
   const focusId = document.activeElement?.id;
@@ -91,7 +109,7 @@ function renderTable(force = false) {
   }
   $('table-container').innerHTML = `<table aria-label="${page === 'activity' ? 'Latest workflow runs' : 'Repository workflows'}"><thead><tr><th class="check-col" scope="col"><span class="sr-only">Select</span></th><th scope="col">Workflow</th><th class="last-col" scope="col">Last run</th><th class="result-col" scope="col">Result</th><th class="run-col" scope="col"><span class="sr-only">Run workflow</span></th></tr></thead><tbody>${workflows.map(workflow => {
     const unavailable = workflow.state !== 'active';
-    return `<tr class="${selected.includes(workflow.id) ? 'selected' : ''}"><td class="check-cell"><label><input type="checkbox" id="select-${workflow.id}" data-select="${workflow.id}" aria-label="Select ${esc(workflow.name)}" ${selected.includes(workflow.id) ? 'checked' : ''} ${blocked() || unavailable ? 'disabled' : ''}></label></td><td><span class="workflow-name ${recency(runDate(workflow.lastRun))}">${esc(workflow.name)}</span><span class="workflow-path" title="${esc(workflow.path)}">${esc(workflow.path.replace('.github/workflows/', ''))}${unavailable ? ' · Disabled in GitHub' : ''}</span><span class="mobile-result">${resultMarkup(workflow.lastRun)}</span></td><td>${lastRunMarkup(workflow.lastRun)}</td><td class="result-cell">${resultMarkup(workflow.lastRun)}</td><td><button id="run-${workflow.id}" class="row-run" data-run="${workflow.id}" aria-label="Run ${esc(workflow.name)}" title="${blocked() ? 'Wait for the current queue to finish' : unavailable ? 'Enable this workflow on GitHub first' : `Run ${esc(workflow.name)}`}" ${blocked() || unavailable ? 'disabled' : ''}>${icon('play')}</button></td></tr>`;
+    return `<tr class="${selected.includes(workflow.id) ? 'selected' : ''}"><td class="check-cell"><label><input type="checkbox" id="select-${workflow.id}" data-select="${workflow.id}" aria-label="Select ${esc(workflow.name)}" ${selected.includes(workflow.id) ? 'checked' : ''} ${blocked() || unavailable ? 'disabled' : ''}></label></td><td><span class="workflow-name ${recency(runDate(workflow.lastRun))}">${esc(workflow.name)}</span><span class="workflow-path" title="${esc(workflow.path)}">${esc(workflow.path.replace('.github/workflows/', ''))}${unavailable ? ' · Disabled in GitHub' : ''}</span><span class="mobile-result">${resultMarkup(workflow.lastRun)}</span></td><td>${lastRunMarkup(workflow.lastRun)}</td><td class="result-cell">${resultMarkup(workflow.lastRun)}</td><td><button id="run-${workflow.id}" class="row-run" data-run="${workflow.id}" aria-label="Run ${esc(workflow.name)}" title="${runBlocked() ? 'Wait for the running queue to finish across all workspaces' : unavailable ? 'Enable this workflow on GitHub first' : `Run ${esc(workflow.name)}`}" ${runBlocked() || unavailable ? 'disabled' : ''}>${icon('play')}</button></td></tr>`;
   }).join('')}</tbody></table>`;
   if (focusId && $(focusId)) $(focusId).focus({ preventScroll: true });
 }
@@ -100,7 +118,7 @@ function renderQueue(force = false) {
   const queued = state.queue;
   const showingSelection = selected.length > 0 && !queued.running;
   const items = showingSelection ? selected.map(id => ({ workflowId: id, name: state.workflows.find(workflow => workflow.id === id)?.name, status: 'selected', ref: $('branch').value })) : queued.items;
-  const signature = JSON.stringify([items, selected, blocked(), queued.error, showingSelection, Object.keys(inputValues)]);
+  const signature = JSON.stringify([items, selected, busy, blocked(), state.globalQueue, workspaceId, queued.error, showingSelection, Object.keys(inputValues)]);
   if (signature === queueSignature && !force) { renderMobileBar(); return; }
   queueSignature = signature;
   const focusId = document.activeElement?.id;
@@ -117,9 +135,9 @@ function renderQueue(force = false) {
     return `<li><span class="queue-index">${item.status === 'completed' && item.conclusion === 'success' ? '✓' : index + 1}</span><div class="queue-item-body"><strong>${esc(item.name)}</strong><p>${showingSelection ? (index === 0 ? 'Starts first' : `After workflow ${index}`) : esc(status?.replaceAll('_', ' '))}${!showingSelection && item.ref ? ` · ${esc(item.ref)}` : ''}</p>${item.error ? `<p class="queue-error">${esc(item.error)}</p>` : ''}${url ? `<a href="${url}" target="_blank" rel="noreferrer">View run on GitHub ↗</a>` : ''}${showingSelection ? `<div class="queue-item-controls"><button id="up-${item.workflowId}" data-move="${item.workflowId}" data-direction="-1" aria-label="Move ${esc(item.name)} earlier" ${index === 0 ? 'disabled' : ''}>↑</button><button id="down-${item.workflowId}" data-move="${item.workflowId}" data-direction="1" aria-label="Move ${esc(item.name)} later" ${index === items.length - 1 ? 'disabled' : ''}>↓</button><button id="remove-${item.workflowId}" data-remove="${item.workflowId}" aria-label="Remove ${esc(item.name)}">×</button><button class="options-button" id="options-${item.workflowId}" data-options="${item.workflowId}">Run options${inputValues[item.workflowId] ? ' · saved' : ''}</button></div>` : ''}</div></li>`;
   }).join('')}</ol>` : `<div class="queue-empty"><span class="empty-path">${icon('queue')}</span><strong>A little less clicking.</strong><p>Select a workflow to add it here.<br>Ready when you are.</p></div>`;
   $('queue-items').innerHTML = queueHTML + (queued.error ? `<p class="queue-error" role="status">${esc(queued.error)}</p>` : '');
-  $('run-selected').disabled = !selected.length || blocked() || !$('branch').value.trim();
-  $('run-label').textContent = busy ? 'Preparing workflows…' : queued.running ? 'Queue is running' : `Run ${selected.length ? selected.length === 1 ? 'workflow' : `${selected.length} workflows` : 'selected'}`;
-  $('run-help').textContent = state.mode === 'setup' ? 'Connect a repository before running workflows.' : queued.running ? 'You can close this tab. Keep the local server running.' : busy ? 'Checking workflow options. Nothing has been dispatched yet.' : !$('branch').value.trim() ? 'Enter a branch to run on.' : selected.length ? `${selected.length === 1 ? 'Runs' : 'Runs sequentially'} on ${$('branch').value.trim()}.` : 'Select a workflow to get started.';
+  $('run-selected').disabled = !selected.length || runBlocked() || !$('branch').value.trim();
+  $('run-label').textContent = switching ? 'Switching workspace…' : busy ? 'Preparing workflows…' : queued.running ? 'Queue is running' : `Run ${selected.length ? selected.length === 1 ? 'workflow' : `${selected.length} workflows` : 'selected'}`;
+  $('run-help').textContent = state.mode === 'setup' ? 'Connect a repository before running workflows.' : queued.running ? 'You can close this tab. Keep the local server running.' : busy ? 'Preparing this workspace. Nothing new has been dispatched yet.' : state.globalQueue ? `Wait for ${state.globalQueue.repository} to finish. Your selection is kept here.` : !$('branch').value.trim() ? 'Enter a branch to run on.' : selected.length ? `${selected.length === 1 ? 'Runs' : 'Runs sequentially'} on ${$('branch').value.trim()}.` : 'Select a workflow to get started.';
   $('allow-multiple').disabled = blocked();
   $('branch').disabled = blocked();
   renderMobileBar();
@@ -133,17 +151,93 @@ function renderHeading() {
   $('page-title').textContent = setup ? 'Connect your repository.' : page === 'activity' ? 'The latest, at a glance.' : 'Your workflows. Ready to run.';
   $('page-description').textContent = setup ? 'Your workflows and run history will appear here.' : page === 'activity' ? 'The most recent run of each workflow, newest first.' : 'Pick a workflow, or line up a few. We’ll take it from here.';
 }
+function rememberWorkspace() {
+  if (!state?.workspaceId) return;
+  workspaceViews.set(state.workspaceId, {
+    selected: [...selected], inputValues: structuredClone(inputValues), schemas,
+    branch: $('branch').value, allowMultiple: $('allow-multiple').checked,
+    search: $('search').value, filter: $('recency-filter').value, sort: $('sort').value
+  });
+}
+function renderWorkspaces() {
+  const workspaces = state.workspaces || [];
+  const signature = JSON.stringify([workspaces, workspaceId]);
+  if (signature !== workspaceSignature) {
+    workspaceSignature = signature;
+    $('workspace-select').innerHTML = workspaces.length ? workspaces.map(workspace => `<option value="${esc(workspace.id)}">${esc(workspace.repository)}${workspace.running ? ' · Running' : ''}</option>`).join('') : '<option value="">Connect a repository</option>';
+    $('workspace-select').value = workspaceId || '';
+    $('workspace-management').hidden = !workspaces.length;
+    $('workspace-list').innerHTML = workspaces.map(workspace => `<li><span><strong>${esc(workspace.repository)}</strong><small>${esc(workspace.branch || 'Default branch')}${workspace.id === workspaceId ? ' · Current' : ''}</small></span>${workspace.running ? '<span class="workspace-running">Queue running</span>' : `<button type="button" class="text-button remove-workspace" data-workspace-remove="${esc(workspace.id)}" aria-label="Remove workspace ${esc(workspace.repository)}">Remove</button>`}</li>`).join('');
+  }
+  $('workspace-select').disabled = busy || !workspaces.length;
+  $('add-workspace').disabled = busy;
+  const elsewhere = state.globalQueue && state.globalQueue.workspaceId !== workspaceId;
+  $('global-run-banner').hidden = !elsewhere;
+  $('global-run-message').textContent = elsewhere ? `${state.globalQueue.repository} has a running queue. New runs wait until it finishes.` : '';
+  $('view-running-workspace').disabled = busy;
+}
+function invalidateRefresh() {
+  ++refreshGeneration;
+  refreshPromise = null;
+  refreshWorkspaceId = undefined;
+}
+async function switchWorkspace(target) {
+  if (busy || target === workspaceId) return;
+  if (!target) return settings();
+  busy = true; switching = true;
+  invalidateRefresh();
+  renderWorkspaces(); renderTable(); renderQueue();
+  try {
+    if (savingBranch) await savingBranch.catch(() => {});
+    updateState(await api('/api/workspaces/select', { workspaceId: target }));
+    clearError();
+    await refresh();
+    announce(`Switched to ${state.repo.fullName}.`);
+  } catch (failure) { error(failure.message); }
+  finally { busy = false; switching = false; renderWorkspaces(); renderTable(); renderQueue(); $('workspace-select').value = workspaceId || ''; }
+}
+async function saveBranchChoice() {
+  if (!workspaceId || !$('branch').value.trim()) return;
+  const target = workspaceId;
+  const branch = $('branch').value.trim();
+  if (branch === state.branch && !savingBranch) return;
+  const previous = savingBranch;
+  const task = (async () => {
+    if (previous) await previous.catch(() => {});
+    if (target === workspaceId) $('branch-status').textContent = 'Saving branch…';
+    const next = await api('/api/workspaces/branch', { workspaceId: target, branch });
+    if (target === workspaceId && branch === $('branch').value.trim()) {
+      updateState(next);
+      $('branch-status').textContent = 'Branch saved for this workspace.';
+    }
+  })();
+  savingBranch = task;
+  try { await task; }
+  catch (failure) { if (target === workspaceId) $('branch-status').textContent = `Branch not saved: ${failure.message}`; throw failure; }
+  finally { if (savingBranch === task) savingBranch = null; }
+}
 function updateState(next) {
   if (!next?.workflows || !next.queue) return;
-  const repoChanged = state?.repo.fullName !== next.repo.fullName || state?.mode !== next.mode;
+  const repoChanged = state?.workspaceId !== next.workspaceId || state?.repo.fullName !== next.repo.fullName || state?.mode !== next.mode;
+  if (repoChanged) rememberWorkspace();
   state = next;
+  workspaceId = state.workspaceId || undefined;
+  const url = new URL(location.href);
+  if (workspaceId) url.searchParams.set('workspace', workspaceId); else url.searchParams.delete('workspace');
+  history.replaceState(null, '', url);
   if (!initialized || repoChanged) {
-    $('branch').value = state.repo.defaultBranch || 'main';
-    $('repository').value = state.mode === 'github' ? state.repo.url || state.repo.fullName : '';
-    selected = []; schemas.clear(); inputValues = {}; initialized = true;
+    const view = workspaceViews.get(workspaceId);
+    $('branch').value = view?.branch ?? state.branch ?? state.repo.defaultBranch ?? 'main';
+    $('branch-status').textContent = 'Saved per workspace.';
+    $('allow-multiple').checked = view?.allowMultiple || false;
+    $('mode-help').textContent = $('allow-multiple').checked ? 'Select several. They still run one by one, never in parallel.' : 'Off by default. Select one workflow at a time.';
+    $('search').value = view?.search || '';
+    $('recency-filter').value = view?.filter || 'all';
+    $('sort').value = view?.sort || 'name';
+    selected = view?.selected || []; schemas = view?.schemas || new Map(); inputValues = view?.inputValues || {};
+    initialized = true;
   }
   selected = selected.filter(id => state.workflows.some(workflow => workflow.id === id && workflow.state === 'active'));
-  $('sidebar-repo').textContent = state.repo.fullName.split('/').at(-1) || 'Connect repository';
   $('breadcrumb-repo').textContent = state.repo.fullName || 'No repository';
   $('nav-count').textContent = state.workflows.length;
   $('workflow-count').textContent = state.workflows.length;
@@ -152,18 +246,34 @@ function updateState(next) {
   $('github-link').hidden = state.mode !== 'github' || !safeUrl(state.repo.url);
   if (!$('github-link').hidden) $('github-link').href = `${state.repo.url}/actions`;
   $('sync-label').textContent = state.mode === 'setup' ? 'Connect a repository to load workflows' : `Last synced ${new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(state.updatedAt || Date.now()))} · Auto-refresh every 5s`;
-  renderHeading(); renderTable(); renderQueue();
+  renderHeading(); renderWorkspaces(); renderTable(); renderQueue();
 }
 async function refresh(manual = false) {
-  if (refreshPromise) return refreshPromise;
+  if (refreshPromise && refreshWorkspaceId === workspaceId) return refreshPromise;
+  const generation = ++refreshGeneration;
+  const target = workspaceId;
+  refreshWorkspaceId = target;
   if (manual) { $('refresh').disabled = true; $('refresh').classList.add('spin'); }
   refreshPromise = (async () => {
-    try { updateState(await api(manual ? '/api/state?refresh=1' : '/api/state')); if (manual) { clearError(); announce('Workflows refreshed.'); } }
-    catch (failure) {
+    try {
+      let next;
+      try { next = await api(manual ? '/api/state?refresh=1' : '/api/state'); }
+      catch (failure) {
+        if (failure.code !== 'WORKSPACE_NOT_FOUND' || !target || generation !== refreshGeneration) throw failure;
+        workspaceId = undefined;
+        next = await api('/api/state');
+      }
+      if (generation !== refreshGeneration) return;
+      updateState(next);
+      if (manual) { clearError(); announce('Workflows refreshed.'); }
+    } catch (failure) {
+      if (generation !== refreshGeneration) return;
       error(`${failure.message} ${state ? 'Showing the last synced data; automatic refresh will retry.' : 'Start the local server and refresh to try again.'}`);
       $('connection').innerHTML = '<span class="dot red"></span>Connection interrupted';
       if (!state) { $('table-container').innerHTML = '<div class="empty-results"><strong>Could not load workflows</strong><p>Check your connection and use Refresh to retry.</p></div>'; $('table-container').setAttribute('aria-busy', 'false'); }
-    } finally { $('refresh').disabled = false; $('refresh').classList.remove('spin'); refreshPromise = null; }
+    } finally {
+      if (generation === refreshGeneration) { $('refresh').disabled = false; $('refresh').classList.remove('spin'); refreshPromise = null; }
+    }
   })();
   return refreshPromise;
 }
@@ -204,26 +314,32 @@ async function showInputs(ids, shouldRun = false) {
 }
 async function dispatch(ids) {
   clearError();
-  const result = await api('/api/queue', { workflowIds: ids, ref: $('branch').value.trim(), allowMultiple: $('allow-multiple').checked, inputs: Object.fromEntries(ids.map(id => [id, inputValues[id] || {}])) });
+  const result = await api('/api/queue', { workspaceId, workflowIds: ids, ref: $('branch').value.trim(), allowMultiple: $('allow-multiple').checked, inputs: Object.fromEntries(ids.map(id => [id, inputValues[id] || {}])) });
   selected = []; updateState(result); await refresh();
   announce(`${ids.length} ${ids.length === 1 ? 'workflow' : 'workflows'} added to the run queue.`);
 }
 async function run(ids) {
-  if (blocked() || !ids.length) return;
+  if (runBlocked() || !ids.length) return;
   if (!$('branch').value.trim()) { error('Enter a branch before starting a workflow.'); $('branch').focus(); return; }
-  busy = true; renderTable(); renderQueue();
-  try { await showInputs(ids, true); } catch (failure) { error(failure.message); }
-  finally { busy = false; renderTable(); renderQueue(); }
+  busy = true; renderWorkspaces(); renderTable(); renderQueue();
+  try { await saveBranchChoice(); await showInputs(ids, true); } catch (failure) { error(failure.message); }
+  finally { busy = false; renderWorkspaces(); renderTable(); renderQueue(); }
 }
 function settings() {
-  if (blocked()) { error('Repository settings cannot change while a queue is being prepared or running.'); return; }
-  $('settings-error').hidden = true; $('settings-dialog').showModal();
+  if (busy) return;
+  $('repository').value = '';
+  $('settings-title').textContent = state?.workspaces?.length ? 'Add a workspace' : 'Connect your repository';
+  $('settings-error').hidden = true;
+  $('settings-dialog').showModal();
 }
 $('refresh').addEventListener('click', () => refresh(true));
 $('dismiss-error').addEventListener('click', clearError);
-for (const id of ['repo-switch', 'sidebar-settings', 'connect-repo']) $(id).addEventListener('click', settings);
+for (const id of ['add-workspace', 'sidebar-settings', 'connect-repo']) $(id).addEventListener('click', settings);
+$('workspace-select').addEventListener('change', event => switchWorkspace(event.target.value));
+$('view-running-workspace').addEventListener('click', () => switchWorkspace(state?.globalQueue?.workspaceId));
 for (const id of ['search', 'recency-filter', 'sort']) $(id).addEventListener(id === 'search' ? 'input' : 'change', () => renderTable());
-$('branch').addEventListener('input', () => { schemas.clear(); inputValues = {}; renderQueue(); });
+$('branch').addEventListener('input', () => { schemas.clear(); inputValues = {}; $('branch-status').textContent = 'Branch not saved yet.'; renderQueue(); });
+$('branch').addEventListener('change', () => { saveBranchChoice().catch(failure => error(failure.message)); });
 $('allow-multiple').addEventListener('change', () => {
   if (!$('allow-multiple').checked && selected.length > 1) { selected = selected.slice(0, 1); announce('Multiple selection is off. Only the first selected workflow was kept.'); }
   $('mode-help').textContent = $('allow-multiple').checked ? 'Select several. They still run one by one, never in parallel.' : 'Off by default. Select one workflow at a time.';
@@ -253,24 +369,48 @@ $('queue-items').addEventListener('click', async event => {
     if (other >= 0 && other < selected.length) [selected[index], selected[other]] = [selected[other], selected[index]];
   }
   if (target.dataset.options) {
-    busy = true; renderQueue(); renderTable();
-    try { await showInputs([Number(target.dataset.options)]); } catch (failure) { error(failure.message); }
-    finally { busy = false; renderQueue(); renderTable(); }
+    busy = true; renderWorkspaces(); renderQueue(); renderTable();
+    try { await saveBranchChoice(); await showInputs([Number(target.dataset.options)]); } catch (failure) { error(failure.message); }
+    finally { busy = false; renderWorkspaces(); renderQueue(); renderTable(); }
   }
   renderTable(); renderQueue();
 });
 $('stop-queue').addEventListener('click', async () => {
-  busy = true; renderQueue();
-  try { updateState(await api('/api/queue/stop', {})); announce('Pending workflows removed. The current GitHub run is not canceled.'); }
+  busy = true; renderWorkspaces(); renderQueue();
+  try { updateState(await api('/api/queue/stop', { workspaceId })); announce('Pending workflows removed. The current GitHub run is not canceled.'); }
   catch (failure) { error(failure.message); }
-  finally { busy = false; renderQueue(); renderTable(); }
+  finally { busy = false; renderWorkspaces(); renderQueue(); renderTable(); }
 });
 $('settings-form').addEventListener('submit', async event => {
   event.preventDefault();
   const button = $('save-settings'); button.disabled = true; button.textContent = 'Connecting…'; $('settings-error').hidden = true;
-  try { updateState(await api('/api/config', { repository: $('repository').value.trim() })); $('settings-dialog').close(); clearError(); await refresh(); announce('Repository connected.'); }
-  catch (failure) { $('settings-error').textContent = failure.message; $('settings-error').hidden = false; }
-  finally { button.disabled = false; button.textContent = 'Connect repository'; }
+  busy = true; renderWorkspaces();
+  try {
+    if (savingBranch) await savingBranch.catch(() => {});
+    invalidateRefresh();
+    updateState(await api('/api/config', { repository: $('repository').value.trim() }));
+    $('settings-dialog').close(); clearError(); await refresh(); announce(`Workspace connected: ${state.repo.fullName}.`);
+  } catch (failure) { $('settings-error').textContent = failure.message; $('settings-error').hidden = false; }
+  finally { busy = false; button.disabled = false; button.textContent = 'Connect repository'; renderWorkspaces(); renderTable(); renderQueue(); }
+});
+$('workspace-list').addEventListener('click', async event => {
+  const button = event.target.closest('[data-workspace-remove]');
+  if (!button || busy) return;
+  const id = button.dataset.workspaceRemove;
+  const workspace = state.workspaces.find(item => item.id === id);
+  if (!workspace || !confirm(`Remove ${workspace.repository} from saved workspaces? This only removes local settings; the GitHub repository is not changed.`)) return;
+  busy = true; button.disabled = true;
+  try {
+    if (savingBranch) await savingBranch.catch(() => {});
+    const next = await api('/api/workspaces/remove', { workspaceId: id });
+    workspaceViews.delete(id);
+    invalidateRefresh();
+    if (id === workspaceId) updateState(next);
+    await refresh();
+    workspaceViews.delete(id);
+    announce(`Workspace removed: ${workspace.repository}.`);
+  } catch (failure) { $('settings-error').textContent = failure.message; $('settings-error').hidden = false; }
+  finally { busy = false; if (button.isConnected) button.disabled = false; renderWorkspaces(); renderTable(); renderQueue(); }
 });
 $('inputs-form').addEventListener('submit', async event => {
   event.preventDefault();
@@ -280,7 +420,7 @@ $('inputs-form').addEventListener('submit', async event => {
   busy = true; $('save-inputs').disabled = true; $('save-inputs').textContent = 'Starting…';
   try { await dispatch(dialogWorkflows); $('inputs-dialog').close(); }
   catch (failure) { $('inputs-error').textContent = failure.message; $('inputs-error').hidden = false; }
-  finally { busy = false; $('save-inputs').disabled = false; $('save-inputs').textContent = `Run ${dialogWorkflows.length === 1 ? 'workflow' : `${dialogWorkflows.length} workflows`}`; renderTable(); renderQueue(); }
+  finally { busy = false; $('save-inputs').disabled = false; $('save-inputs').textContent = `Run ${dialogWorkflows.length === 1 ? 'workflow' : `${dialogWorkflows.length} workflows`}`; renderWorkspaces(); renderTable(); renderQueue(); }
 });
 document.querySelectorAll('.close-dialog').forEach(button => button.addEventListener('click', () => button.closest('dialog').close()));
 for (const view of ['workflows', 'activity']) $(`nav-${view}`).addEventListener('click', () => {
@@ -293,5 +433,5 @@ for (const view of ['workflows', 'activity']) $(`nav-${view}`).addEventListener(
 });
 window.addEventListener('offline', () => error('You are offline. GitHub status cannot update. Keep the server running; reconnect before starting another queue.'));
 await refresh();
-setInterval(() => { if (!document.hidden || state?.queue.running) refresh(); }, 5000);
+setInterval(() => { if (!document.hidden || state?.globalQueue || state?.queue.running) refresh(); }, 5000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });

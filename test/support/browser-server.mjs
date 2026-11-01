@@ -27,11 +27,14 @@ class BrowserGitHub {
       actor: { login: 'test-operator' }, html_url: `https://github.com/test-org/workflows/actions/runs/${id}` };
   }
   async getRepo(name) {
-    if (name !== 'test-org/workflows') throw new ApiError('Test repository not found.', 404);
-    return { fullName: name, url: `https://github.com/${name}`, defaultBranch: 'main' };
+    if (!['test-org/workflows', 'test-org/website'].includes(name)) throw new ApiError('Test repository not found.', 404);
+    return { fullName: name, url: `https://github.com/${name}`, defaultBranch: name.endsWith('/website') ? 'develop' : 'main' };
   }
-  async listWorkflows() { return this.workflows; }
-  async latestRun(repo, id) { return [...this.runs.values()].filter(run => run.workflow_id === id).at(-1) || this.initialRuns[id - 1]; }
+  async listWorkflows(repo) { return repo.endsWith('/website') ? this.workflows.slice(0, 2).map((workflow, index) => ({ ...workflow, name: ['Build website', 'Publish website'][index] })) : this.workflows; }
+  async latestRun(repo, id) {
+    const run = [...this.runs.values()].filter(run => run.repository === repo && run.workflow_id === id).at(-1);
+    return run || (this.initialRuns[id - 1] ? { ...this.initialRuns[id - 1], head_branch: repo.endsWith('/website') ? 'develop' : 'main' } : null);
+  }
   async getInputs(repo, workflow) {
     return { dispatchable: true, inputs: workflow.id === 3 ? [
       { name: 'version', description: 'Version to deploy', type: 'string', required: true, default: null },
@@ -40,16 +43,17 @@ class BrowserGitHub {
   }
   async validateRef(repo, ref) { return { ref, sha: 'test-commit' }; }
   async actor() { return 'test-operator'; }
-  async activeRuns() { return [...this.runs.values()].filter(run => run.status !== 'completed'); }
-  async dispatchRuns(repo, workflowId, ref) { return [...this.runs.values()].filter(run => run.workflow_id === workflowId && run.head_branch === ref); }
+  async activeRuns(repo) { return [...this.runs.values()].filter(run => run.repository === repo && run.status !== 'completed'); }
+  async dispatchRuns(repo, workflowId, ref) { return [...this.runs.values()].filter(run => run.repository === repo && run.workflow_id === workflowId && run.head_branch === ref); }
   async dispatch(repo, workflowId, ref) {
     const id = this.nextId++;
-    this.runs.set(id, this.makeRun(id, workflowId, ref, Date.now()));
+    this.runs.set(id, { ...this.makeRun(id, workflowId, ref, Date.now()), repository: repo, html_url: `https://github.com/${repo}/actions/runs/${id}` });
     return { id };
   }
   async getRun(repo, id) {
     const run = this.runs.get(id);
-    if (Date.now() - Date.parse(run.created_at) >= 2000) Object.assign(run, { status: 'completed', conclusion: 'success', updated_at: new Date().toISOString() });
+    if (!run || run.repository !== repo) throw new ApiError('Test run not found.', 404);
+    if (Date.now() - Date.parse(run.created_at) >= (run.head_branch === 'workspace-queue-test' ? 8000 : 2000)) Object.assign(run, { status: 'completed', conclusion: 'success', updated_at: new Date().toISOString() });
     return { ...run };
   }
 }
