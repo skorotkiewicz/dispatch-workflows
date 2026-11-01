@@ -98,7 +98,6 @@ export async function createApplication({ rootDir = ROOT, env = process.env, ada
         if (request.method === 'POST') {
           const body = await jsonBody(request);
           if (pathname === '/api/config') return json(response, 200, await runner.configure(body.repository));
-          if (pathname === '/api/demo') return json(response, 200, await runner.demo());
           if (pathname === '/api/queue') return json(response, 202, await runner.startQueue(body));
           if (pathname === '/api/queue/stop') return json(response, 200, runner.stop());
         }
@@ -133,7 +132,7 @@ export async function main(env = process.env) {
     app.server.once('error', reject);
     app.server.listen(port, '127.0.0.1', resolveListen);
   });
-  console.log(`Workflow runner at http://127.0.0.1:${app.server.address().port} (${app.runner.mode} mode)`);
+  console.log(`Workflow runner at http://127.0.0.1:${app.server.address().port} (${app.runner.mode === 'setup' ? 'connect a repository to get started' : 'GitHub connected'})`);
   console.log('Queues are memory-only. Restarting loses monitoring; inspect GitHub before starting another batch.');
   let closing = false;
   for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, async () => {

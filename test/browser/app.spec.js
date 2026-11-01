@@ -6,13 +6,49 @@ const waitForIdle = async request => {
 };
 test.beforeEach(async ({ page, request }) => {
   await waitForIdle(request);
+  const state = await (await request.get('/api/state')).json();
+  if (state.mode === 'setup') {
+    const response = await request.post('/api/config', { data: { repository: 'test-org/workflows' }, headers: { Origin: 'http://127.0.0.1:3107' } });
+    expect(response.status()).toBe(200);
+  }
   await page.goto('/');
   await expect(page.locator('#workflow-count')).toHaveText('8');
 });
 
-test('renders demo, supports one selection by default, filters, and keyboard navigation', async ({ page }) => {
+test('unconfigured workspace shows an accessible setup screen and connects through the form', async ({ page }) => {
+  await page.route('**/api/state*', route => route.fulfill({ json: {
+    mode: 'setup', repo: { fullName: '', url: null, defaultBranch: 'main' }, workflows: [],
+    queue: { running: false, items: [], error: null }, updatedAt: new Date().toISOString(), auth: 'none'
+  } }));
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'No repository connected', exact: true })).toBeVisible();
+  await expect(page.locator('#workspace-grid')).toBeHidden();
+  await expect(page.locator('#connection')).toHaveText('Not connected');
+  await expect(page.locator('tbody tr')).toHaveCount(0);
+  await page.screenshot({ path: 'artifacts/setup-desktop.png', fullPage: true });
+  const audit = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze();
+  expect(audit.violations).toEqual([]);
+  await page.setViewportSize({ width: 320, height: 900 });
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: 'artifacts/setup-mobile.png', fullPage: true });
+  await page.getByRole('button', { name: 'Connect a repository', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
+  await page.getByLabel('GitHub repository URL').fill('test-org/workflows');
+  await page.unroute('**/api/state*');
+  await page.getByRole('button', { name: 'Connect repository', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.locator('#setup-screen')).toBeHidden();
+  await expect(page.locator('#workflow-count')).toHaveText('8');
+  await expect(page.locator('#connection')).toHaveText('GitHub connected');
+  await page.reload();
+  await expect(page.locator('#breadcrumb-repo')).toHaveText('test-org/workflows');
+});
+
+test('loads repository workflows, supports one selection by default, filters, and keyboard navigation', async ({ page }) => {
   const errors = []; page.on('pageerror', failure => errors.push(failure.message));
-  await expect(page.getByText('Demo workflows are simulated.', { exact: false })).toBeVisible();
+  await expect(page.locator('#connection')).toHaveText('GitHub connected');
   await expect(page.getByLabel('Allow multiple workflows')).not.toBeChecked();
   await page.getByLabel('Select CI pipeline', { exact: true }).check();
   await page.getByLabel('Select Docs preview', { exact: true }).check();
@@ -29,8 +65,9 @@ test('renders demo, supports one selection by default, filters, and keyboard nav
   await page.getByRole('button', { name: 'Latest activity' }).click();
   await expect(page.getByRole('heading', { name: 'The latest, at a glance.' })).toBeVisible();
   await expect(page.locator('tbody tr')).toHaveCount(7);
-  await page.getByRole('button', { name: 'Workflows', exact: false }).first().click();
+  await page.locator('#nav-workflows').click();
   await page.getByLabel('Select CI pipeline', { exact: true }).focus();
+  await expect(page.getByLabel('Select CI pipeline', { exact: true })).toBeFocused();
   await page.keyboard.press('Space');
   await expect(page.getByLabel('Select CI pipeline', { exact: true })).toBeChecked();
   await page.screenshot({ path: 'artifacts/desktop.png', fullPage: true });
@@ -88,7 +125,7 @@ test('requires workflow inputs, handles configuration errors inline, and traps d
   await expect(dialog.getByLabel('version *', { exact: true })).toHaveAttribute('required', '');
   await page.keyboard.press('Escape');
   await expect(dialog).not.toBeVisible();
-  await page.getByRole('button', { name: 'Connect a repository', exact: false }).click();
+  await page.locator('#sidebar-settings').click();
   await expect(page.getByRole('heading', { name: 'Connect your repository' })).toBeVisible();
   await page.getByLabel('GitHub repository URL').fill('https://example.com/owner/repo');
   await page.getByRole('button', { name: 'Connect repository', exact: true }).click();
@@ -152,5 +189,5 @@ test('displays a persistent offline/error state and can recover on refresh', asy
   await page.unroute('**/api/state*');
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await expect(page.locator('#error-banner')).toBeHidden();
-  await expect(page.locator('#connection')).toContainText('Demo workspace');
+  await expect(page.locator('#connection')).toContainText('GitHub connected');
 });

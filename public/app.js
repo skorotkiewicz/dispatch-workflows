@@ -119,11 +119,19 @@ function renderQueue(force = false) {
   $('queue-items').innerHTML = queueHTML + (queued.error ? `<p class="queue-error" role="status">${esc(queued.error)}</p>` : '');
   $('run-selected').disabled = !selected.length || blocked() || !$('branch').value.trim();
   $('run-label').textContent = busy ? 'Preparing workflows…' : queued.running ? 'Queue is running' : `Run ${selected.length ? selected.length === 1 ? 'workflow' : `${selected.length} workflows` : 'selected'}`;
-  $('run-help').textContent = queued.running ? 'You can close this tab. Keep the local server running.' : busy ? 'Checking workflow options. Nothing has been dispatched yet.' : !$('branch').value.trim() ? 'Enter a branch to run on.' : selected.length ? state.mode === 'demo' ? 'Simulated runs only. No GitHub actions.' : `${selected.length === 1 ? 'Runs' : 'Runs sequentially'} on ${$('branch').value.trim()}.` : 'Select a workflow to get started.';
+  $('run-help').textContent = state.mode === 'setup' ? 'Connect a repository before running workflows.' : queued.running ? 'You can close this tab. Keep the local server running.' : busy ? 'Checking workflow options. Nothing has been dispatched yet.' : !$('branch').value.trim() ? 'Enter a branch to run on.' : selected.length ? `${selected.length === 1 ? 'Runs' : 'Runs sequentially'} on ${$('branch').value.trim()}.` : 'Select a workflow to get started.';
   $('allow-multiple').disabled = blocked();
   $('branch').disabled = blocked();
   renderMobileBar();
   if (focusId && $(focusId)) $(focusId).focus({ preventScroll: true });
+}
+function renderHeading() {
+  const setup = state?.mode === 'setup';
+  $('setup-screen').hidden = !setup;
+  $('workspace-grid').hidden = setup;
+  $('refresh').hidden = setup;
+  $('page-title').textContent = setup ? 'Connect your repository.' : page === 'activity' ? 'The latest, at a glance.' : 'Your workflows. Ready to run.';
+  $('page-description').textContent = setup ? 'Your workflows and run history will appear here.' : page === 'activity' ? 'The most recent run of each workflow, newest first.' : 'Pick a workflow, or line up a few. We’ll take it from here.';
 }
 function updateState(next) {
   if (!next?.workflows || !next.queue) return;
@@ -135,17 +143,16 @@ function updateState(next) {
     selected = []; schemas.clear(); inputValues = {}; initialized = true;
   }
   selected = selected.filter(id => state.workflows.some(workflow => workflow.id === id && workflow.state === 'active'));
-  $('sidebar-repo').textContent = state.repo.fullName.split('/').at(-1);
-  $('breadcrumb-repo').textContent = state.repo.fullName;
+  $('sidebar-repo').textContent = state.repo.fullName.split('/').at(-1) || 'Connect repository';
+  $('breadcrumb-repo').textContent = state.repo.fullName || 'No repository';
   $('nav-count').textContent = state.workflows.length;
   $('workflow-count').textContent = state.workflows.length;
-  $('demo-banner').hidden = state.mode !== 'demo';
-  $('connection').innerHTML = `<span class="dot ${state.mode === 'github' ? 'green' : 'neutral'}"></span>${state.mode === 'demo' ? 'Demo workspace' : 'GitHub connected'}`;
+  $('connection').innerHTML = `<span class="dot ${state.mode === 'github' ? 'green' : 'neutral'}"></span>${state.mode === 'setup' ? 'Not connected' : 'GitHub connected'}`;
   $('auth-label').textContent = state.auth === 'gh' ? 'Authenticated with GitHub CLI' : state.auth === 'environment' ? 'Authenticated with environment token' : 'Server-side authentication';
   $('github-link').hidden = state.mode !== 'github' || !safeUrl(state.repo.url);
   if (!$('github-link').hidden) $('github-link').href = `${state.repo.url}/actions`;
-  $('sync-label').textContent = `Last synced ${new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(state.updatedAt || Date.now()))} · Auto-refresh every 5s`;
-  renderTable(); renderQueue();
+  $('sync-label').textContent = state.mode === 'setup' ? 'Connect a repository to load workflows' : `Last synced ${new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(state.updatedAt || Date.now()))} · Auto-refresh every 5s`;
+  renderHeading(); renderTable(); renderQueue();
 }
 async function refresh(manual = false) {
   if (refreshPromise) return refreshPromise;
@@ -199,7 +206,7 @@ async function dispatch(ids) {
   clearError();
   const result = await api('/api/queue', { workflowIds: ids, ref: $('branch').value.trim(), allowMultiple: $('allow-multiple').checked, inputs: Object.fromEntries(ids.map(id => [id, inputValues[id] || {}])) });
   selected = []; updateState(result); await refresh();
-  announce(`${ids.length} ${state.mode === 'demo' ? 'simulated ' : ''}${ids.length === 1 ? 'workflow' : 'workflows'} added to the run queue.`);
+  announce(`${ids.length} ${ids.length === 1 ? 'workflow' : 'workflows'} added to the run queue.`);
 }
 async function run(ids) {
   if (blocked() || !ids.length) return;
@@ -265,12 +272,6 @@ $('settings-form').addEventListener('submit', async event => {
   catch (failure) { $('settings-error').textContent = failure.message; $('settings-error').hidden = false; }
   finally { button.disabled = false; button.textContent = 'Connect repository'; }
 });
-$('use-demo').addEventListener('click', async () => {
-  $('use-demo').disabled = true;
-  try { updateState(await api('/api/demo', {})); $('settings-dialog').close(); clearError(); await refresh(); }
-  catch (failure) { $('settings-error').textContent = failure.message; $('settings-error').hidden = false; }
-  finally { $('use-demo').disabled = false; }
-});
 $('inputs-form').addEventListener('submit', async event => {
   event.preventDefault();
   for (const id of dialogWorkflows) inputValues[id] = {};
@@ -286,8 +287,7 @@ for (const view of ['workflows', 'activity']) $(`nav-${view}`).addEventListener(
   page = view;
   for (const name of ['workflows', 'activity']) { $(`nav-${name}`).classList.toggle('active', name === view); if (name === view) $(`nav-${name}`).setAttribute('aria-current', 'page'); else $(`nav-${name}`).removeAttribute('aria-current'); }
   $('breadcrumb-page').textContent = view === 'activity' ? 'Latest activity' : 'Workflows';
-  $('page-title').textContent = view === 'activity' ? 'The latest, at a glance.' : 'Your workflows. Ready to run.';
-  $('page-description').textContent = view === 'activity' ? 'The most recent run of each workflow, newest first.' : 'Pick a workflow, or line up a few. We’ll take it from here.';
+  renderHeading();
   $('list-heading').firstChild.textContent = view === 'activity' ? 'Latest workflow runs ' : 'Workflows ';
   $('sort').disabled = view === 'activity'; renderTable();
 });

@@ -319,23 +319,30 @@ main {
 max-width:1600px;
 margin:0 auto;
 padding:32px 40px 24px}
-.demo-banner {
-border:1px solid #cbded6;
-background:#edf4f0;
-padding:12px 16px;
-border-radius:6px;
+.setup-screen {
+background:white;
+border:1px solid var(--line);
+border-radius:var(--radius);
+padding:48px 24px;
+min-height:320px;
 display:flex;
-align-items:center;
-justify-content:space-between;
-gap:16px;
-font-size:13px;
-color:#3f5e51;
-margin-bottom:32px}
-.demo-banner strong {
-font-weight:600}
-.demo-banner .text-button {
-font-size:13px;
-white-space:nowrap}
+flex-direction:column;
+align-items:flex-start;
+gap:16px}
+.setup-screen h2 {
+font-size:24px}
+.setup-screen p {
+font-size:16px;
+color:var(--muted);
+max-width:60ch}
+.setup-icon {
+color:var(--teal)}
+.setup-icon svg {
+width:32px;
+height:32px}
+.setup-screen .setup-note {
+font-size:14px;
+margin-top:8px}
 .error-banner {
 border:1px solid #d3a4a3;
 background:#fff1f0;
@@ -1053,10 +1060,6 @@ height:80px}
 margin-bottom:32px}
 .eyebrow {
 font-size:9px}
-.demo-banner {
-align-items:start}
-.demo-banner .text-button {
-white-space:normal}
 .page-footer {
 margin-top:32px}
 }
@@ -1124,15 +1127,6 @@ padding:8px}
 .eyebrow {
 font-size:8px;
 letter-spacing:1.2px}
-.demo-banner {
-font-size:12px;
-padding:12px;
-flex-wrap:wrap;
-gap:8px;
-margin-bottom:24px}
-.demo-banner .text-button {
-font-size:12px;
-min-height:24px}
 .section-title h2 {
 font-size:16px}
 .quiet-link {

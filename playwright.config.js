@@ -10,7 +10,7 @@ export default defineConfig({
   timeout: 45_000,
   use: { baseURL: 'http://127.0.0.1:3107', viewport: { width: 1440, height: 1100 }, trace: 'retain-on-failure' },
   webServer: {
-    command: 'node server.mjs',
+    command: 'node test/support/browser-server.mjs',
     url: 'http://127.0.0.1:3107',
     env: { PORT: '3107', DATA_DIR: mkdtempSync(join(tmpdir(), 'dispatch-browser-')), GITHUB_REPO: '' },
     reuseExistingServer: false

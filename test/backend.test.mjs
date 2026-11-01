@@ -148,13 +148,12 @@ test('disabled and non-dispatchable workflows are rejected before dispatch', asy
   assert.equal(adapter.dispatched.length, 0);
 });
 
-test('queue lock is acquired before the first await and excludes config/demo changes', async () => {
+test('queue lock is acquired before the first await and excludes configuration changes', async () => {
   const { runner, adapter } = fixture(); const gate = deferred();
   adapter.listWorkflows = async () => { await gate.promise; return adapter.workflows; };
   const first = runner.startQueue(batch([101]));
   await assert.rejects(runner.startQueue(batch([102])), error => error.status === 409);
   await assert.rejects(runner.configure('other/repo'), error => error.status === 409);
-  await assert.rejects(runner.demo(), error => error.status === 409);
   gate.resolve(); await first; await runner.done;
   assert.equal(adapter.dispatched.length, 1);
 });
@@ -297,39 +296,82 @@ test('lastRun metadata is camelCase, duration is seconds, and links cannot escap
   });
 });
 
-test('config stores repository only, explicit demo survives restart, env is bootstrap only', async t => {
+test('config stores repository only, saved repository wins environment bootstrap', async t => {
   const root = await mkdtemp(join(tmpdir(), 'workflow-config-')); t.after(() => rm(root, { recursive: true, force: true }));
-  const configPath = join(root, '.data/config.json'); const { runner } = fixture({ configPath });
+  const configPath = join(root, '.data/config.json'); const { runner } = fixture({ repository: null, configPath });
+  assert.equal(await readRepository(configPath, {}), null);
   assert.equal(await readRepository(configPath, { GITHUB_REPO: 'acme/env' }), 'acme/env');
   await runner.configure('https://github.com/acme/configured');
   assert.deepEqual(JSON.parse(await readFile(configPath, 'utf8')), { repository: 'acme/configured' });
   assert.equal(await readRepository(configPath, { GITHUB_REPO: 'acme/env' }), 'acme/configured');
-  await runner.demo(); assert.equal(await readRepository(configPath, { GITHUB_REPO: 'acme/env' }), null);
-  assert.equal(runner.mode, 'demo'); assert.equal(runner.repo.fullName, 'acme/platform');
+  assert.equal(runner.mode, 'github'); assert.equal(runner.repo.fullName, 'acme/configured');
+  const restarted = fixture({ repository: await readRepository(configPath, {}), configPath });
+  const state = await restarted.runner.refresh();
+  assert.equal(state.mode, 'github'); assert.equal(state.repo.fullName, 'acme/configured');
+  assert.deepEqual(state.workflows.map(workflow => workflow.id), [101, 102]);
 });
 
-test('demo has eight realistic workflows and simulated sequential runs never call GitHub', async () => {
-  const adapter = new Proxy({ auth: 'none' }, { get(target, property) { if (property in target) return target[property]; if (property === 'sanitize') return undefined; return () => { throw new Error(`Unexpected GitHub call: ${String(property)}`); }; } });
-  const { runner } = fixture({ adapter, repository: null, demoDurationMs: 3 });
-  const state = await runner.refresh(); assert.equal(state.mode, 'demo'); assert.equal(state.workflows.length, 8);
-  assert.equal(state.repo.url, null); assert.ok(state.workflows.some(workflow => workflow.lastRun === null));
-  assert.ok(state.workflows.every(workflow => workflow.lastRun?.url == null));
-  await runner.startQueue(batch([1, 2])); await runner.done;
-  assert.deepEqual(runner.queue.items.map(item => item.status), ['completed', 'completed']);
-  assert.equal(runner.workflows[0].lastRun.duration, 0); // Accelerated test clock; production uses ~3 seconds.
+test('legacy null repository config migrates to environment bootstrap or setup', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'workflow-legacy-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const configPath = join(root, 'config.json'); await writeFile(configPath, JSON.stringify({ repository: null }));
+  assert.equal(await readRepository(configPath, {}), null);
+  assert.equal(await readRepository(configPath, { GITHUB_REPO: '' }), null);
+  assert.equal(await readRepository(configPath, { GITHUB_REPO: 'https://github.com/acme/env.git' }), 'acme/env');
+  const { runner } = fixture({ repository: await readRepository(configPath, {}), configPath });
+  assert.equal(runner.snapshot().mode, 'setup');
 });
 
-async function httpFixture(t) {
+function forbiddenGitHub() {
+  const calls = [];
+  const adapter = new Proxy({ auth: 'none' }, { get(target, property) {
+    if (property in target) return target[property];
+    if (property === 'sanitize') return undefined;
+    return () => { calls.push(property); throw new Error(`Unexpected GitHub call: ${String(property)}`); };
+  } });
+  return { adapter, calls };
+}
+const repositoryRequired = error => error instanceof ApiError && error.status === 409 &&
+  error.message === 'Connect a GitHub repository before running workflows.';
+
+test('setup snapshot and refresh stay empty and never call GitHub', async () => {
+  const { adapter, calls } = forbiddenGitHub(); const { runner } = fixture({ adapter, repository: null });
+  const state = runner.snapshot();
+  assert.equal(state.mode, 'setup');
+  assert.deepEqual(state.repo, { fullName: '', url: null, defaultBranch: 'main' });
+  assert.deepEqual(state.workflows, []);
+  assert.deepEqual(state.queue, { running: false, items: [], error: null });
+  assert.deepEqual(await runner.refresh(), state);
+  assert.deepEqual(await runner.refresh({ force: true }), state);
+  assert.deepEqual(calls, []);
+});
+
+test('setup rejects inputs and queues before validation, adapter calls, or queue mutation', async () => {
+  const { adapter, calls } = forbiddenGitHub(); const { runner } = fixture({ adapter, repository: null });
+  const queue = runner.queue, state = runner.snapshot(), done = runner.done;
+  for (const [workflowId, ref] of [[101, 'main'], [0, '../main']]) {
+    await assert.rejects(runner.inputs(workflowId, ref), repositoryRequired);
+  }
+  for (const request of [batch(), batch([1, 2]), {}, null]) {
+    const started = runner.startQueue(request);
+    assert.strictEqual(runner.queue, queue);
+    await assert.rejects(started, repositoryRequired);
+    assert.strictEqual(runner.queue, queue); assert.strictEqual(runner.done, done);
+    assert.deepEqual(runner.snapshot(), state);
+  }
+  assert.deepEqual(calls, []);
+});
+
+async function httpFixture(t, options = {}) {
   const root = await mkdtemp(join(tmpdir(), 'workflow-http-'));
   await mkdir(join(root, 'public')); await writeFile(join(root, 'public/index.html'), '<!doctype html><title>Runner</title>');
   await writeFile(join(root, 'private.txt'), 'server-only-secret'); await symlink(join(root, 'private.txt'), join(root, 'public/leak.txt'));
-  const { runner } = fixture({ repository: null, configPath: join(root, '.data/config.json'), demoDurationMs: 1 });
+  const { runner, adapter } = fixture({ repository: null, configPath: join(root, '.data/config.json'), ...options });
   const app = await createApplication({ rootDir: root, runner });
   await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve));
   const port = app.server.address().port; const origin = `http://127.0.0.1:${port}`;
   t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
   const post = (path, body = {}, headers = {}) => fetch(`${origin}${path}`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
-  return { app, origin, port, post, root };
+  return { app, adapter, origin, port, post, root };
 }
 function rawRequest(port, path, headers = {}, method = 'GET') {
   return new Promise((resolve, reject) => {
@@ -340,18 +382,41 @@ function rawRequest(port, path, headers = {}, method = 'GET') {
   });
 }
 
-test('HTTP contract serves demo state, YAML input metadata, queues and stop', async t => {
-  const { origin, post, app } = await httpFixture(t);
+test('HTTP contract serves setup, configures a repository, and runs configured workflow queues', async t => {
+  const { origin, post, app, adapter } = await httpFixture(t); adapter.schemas.set(102, REQUIRED);
   const response = await fetch(`${origin}/api/state`); assert.equal(response.status, 200);
   const state = await response.json();
   assert.deepEqual(Object.keys(state).sort(), ['auth', 'mode', 'queue', 'repo', 'updatedAt', 'workflows']);
-  assert.equal(state.mode, 'demo'); assert.equal(state.workflows.length, 8); assert.equal(state.queue.error, null);
-  const inputs = await (await fetch(`${origin}/api/workflows/3/inputs?ref=main`)).json();
-  assert.equal(inputs.dispatchable, true); assert.equal(inputs.inputs[0].name, 'version');
-  const started = await post('/api/queue', batch([1, 2])); assert.equal(started.status, 202);
-  assert.ok((await started.json()).queue);
-  assert.equal((await post('/api/queue/stop')).status, 200); await app.runner.done;
-  assert.equal((await post('/api/demo')).status, 200);
+  assert.equal(state.mode, 'setup'); assert.deepEqual(state.workflows, []);
+  assert.deepEqual(state.repo, { fullName: '', url: null, defaultBranch: 'main' });
+  assert.deepEqual(state.queue, { running: false, items: [], error: null });
+  const configured = await post('/api/config', { repository: 'https://github.com/acme/platform' });
+  assert.equal(configured.status, 200); assert.equal((await configured.json()).mode, 'github');
+  const connected = await (await fetch(`${origin}/api/state`)).json();
+  assert.deepEqual(connected.workflows.map(workflow => workflow.id), [101, 102]);
+  const inputsResponse = await fetch(`${origin}/api/workflows/102/inputs?ref=main`);
+  assert.equal(inputsResponse.status, 200); assert.deepEqual(await inputsResponse.json(), REQUIRED);
+  const invalid = await post('/api/queue', batch()); assert.equal(invalid.status, 400);
+  assert.match((await invalid.json()).error, /version is required/); assert.equal(adapter.dispatched.length, 0);
+  const started = await post('/api/queue', batch([101, 102], { inputs: { 102: { version: 'v1.2.3' } } }));
+  assert.equal(started.status, 202); assert.ok((await started.json()).queue); await app.runner.done;
+  assert.deepEqual(adapter.dispatched.map(item => item.workflowId), [101, 102]);
+  assert.equal(adapter.dispatched[1].inputs.version, 'v1.2.3');
+  assert.ok(adapter.events.indexOf('completed:101') < adapter.events.indexOf('dispatch:102'));
+  assert.deepEqual(app.runner.queue.items.map(item => item.status), ['completed', 'completed']);
+  assert.equal((await post('/api/queue/stop')).status, 200);
+});
+
+test('HTTP setup guards reject execution without contacting GitHub or changing the queue', async t => {
+  const { adapter, calls } = forbiddenGitHub();
+  const { origin, post, app } = await httpFixture(t, { adapter }); const queue = app.runner.queue;
+  assert.equal((await fetch(`${origin}/api/state`)).status, 200);
+  for (const response of [await fetch(`${origin}/api/workflows/101/inputs?ref=main`), await post('/api/queue', batch())]) {
+    assert.equal(response.status, 409);
+    assert.equal((await response.json()).error, 'Connect a GitHub repository before running workflows.');
+  }
+  assert.strictEqual(app.runner.queue, queue);
+  assert.deepEqual(queue, { running: false, items: [], error: null }); assert.deepEqual(calls, []);
 });
 
 test('HTTP security rejects foreign hosts/origins/content types and malformed JSON', async t => {
@@ -359,13 +424,13 @@ test('HTTP security rejects foreign hosts/origins/content types and malformed JS
   assert.equal((await rawRequest(port, '/api/state', { Host: `evil.example:${port}` })).status, 403);
   assert.equal((await rawRequest(port, '/api/state', { Host: '127.0.0.1:1' })).status, 403);
   assert.equal((await rawRequest(port, '/api/state', { Host: `localhost:${port}` })).status, 200);
-  assert.equal((await post('/api/demo', {}, { Origin: 'https://evil.example' })).status, 403);
-  assert.equal((await post('/api/demo', {}, { 'Content-Type': 'text/plain' })).status, 415);
-  assert.equal((await fetch(`${origin}/api/demo`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status, 403);
-  assert.equal((await fetch(`${origin}/api/demo`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: '{' })).status, 400);
+  assert.equal((await post('/api/config', {}, { Origin: 'https://evil.example' })).status, 403);
+  assert.equal((await post('/api/config', {}, { 'Content-Type': 'text/plain' })).status, 415);
+  assert.equal((await fetch(`${origin}/api/queue`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status, 403);
+  assert.equal((await fetch(`${origin}/api/queue`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: '{' })).status, 400);
   const invalid = await post('/api/config', { repository: 'https://evil.example/owner/repo' });
   assert.equal(invalid.status, 400); assert.equal(typeof (await invalid.json()).error, 'string');
-  assert.equal((await post('/api/demo', 'x'.repeat(66000))).status, 413);
+  assert.equal((await post('/api/queue', 'x'.repeat(66000))).status, 413);
 });
 
 test('static mapping serves only public regular files and rejects traversal and escaping symlinks', async t => {

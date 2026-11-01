@@ -11,7 +11,7 @@ npm install
 npm start
 ```
 
-Open **http://127.0.0.1:3000**. The first launch opens an explicitly labeled, interactive demo. Demo runs are simulated and never contact GitHub.
+Open **http://127.0.0.1:3000** and click **Connect a repository** to load your workflows.
 
 ## Connect GitHub
 
@@ -25,7 +25,7 @@ Open **http://127.0.0.1:3000**. The first launch opens an explicitly labeled, in
 
 For a fine-grained personal access token, grant the target repository **Actions: read and write**, **Contents: read**, and **Metadata: read**. Your GitHub account must also have permission to run its workflows. Organization/SSO restrictions may require additional approval. Only GitHub.com is supported.
 
-Credentials remain on the server. Only the repository name is saved in `.data/config.json`. You can also bootstrap the first repository using `GITHUB_REPO=owner/repository`; a saved choice takes precedence. **Try demo** explicitly returns to simulation mode.
+Credentials remain on the server. Only the repository name is saved in `.data/config.json`. You can also bootstrap the first repository using `GITHUB_REPO=owner/repository`; a saved repository takes precedence.
 
 ## Run workflows
 
@@ -97,7 +97,7 @@ The server binds only to `127.0.0.1`, checks Host and Origin headers, and does n
 ```sh
 npm test                  # Unit and backend integration tests; no GitHub dispatches
 npx playwright install chromium  # Only needed if Chromium is not already installed
-npm run test:ui           # Browser tests against an isolated demo server
+npm run test:ui           # Browser tests with a test-only fake GitHub adapter
 ```
 
 Browser tests cover the main interactions, sequential execution across a reload, input forms, error recovery, keyboard controls, automated accessibility checks, mobile/320px layouts, long untrusted names, RTL, and 200% zoom. Screenshots are written to the ignored `artifacts/` directory. Tests do not dispatch real GitHub workflows.
@@ -106,6 +106,6 @@ Browser tests cover the main interactions, sequential execution across a reload,
 
 - `server.mjs`: local HTTP/API entry point
 - `lib/github.mjs`: authentication, GitHub API, YAML schemas, input validation
-- `lib/runner.mjs`: configuration, demo data, sequential execution and run tracking
+- `lib/runner.mjs`: configuration, sequential execution and run tracking
 - `public/`: dependency-free browser interface
 - `test/`: unit, integration, and Playwright tests
