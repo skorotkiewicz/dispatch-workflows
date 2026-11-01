@@ -5,10 +5,12 @@ import { recency, relativeTime, escapeHTML, filteredWorkflows } from '../public/
 const now = Date.parse('2026-11-01T12:00:00Z');
 const ago = milliseconds => new Date(now - milliseconds).toISOString();
 
-test('recency has exact boundaries and a neutral 1–7 day range', () => {
+test('recency is green under 12 hours with exact day and week boundaries', () => {
   assert.equal(recency(ago(0), now), 'hour');
-  assert.equal(recency(ago(3_599_999), now), 'hour');
-  assert.equal(recency(ago(3_600_000), now), 'day');
+  assert.equal(recency(ago(3_600_000), now), 'hour');
+  assert.equal(recency(ago(6 * 3_600_000), now), 'hour');
+  assert.equal(recency(ago(43_199_999), now), 'hour');
+  assert.equal(recency(ago(43_200_000), now), 'day');
   assert.equal(recency(ago(86_399_999), now), 'day');
   assert.equal(recency(ago(86_400_000), now), 'week');
   assert.equal(recency(ago(604_800_000), now), 'week');
@@ -16,6 +18,17 @@ test('recency has exact boundaries and a neutral 1–7 day range', () => {
   assert.equal(recency(null, now), 'never');
   assert.equal(recency('invalid', now), 'never');
   assert.equal(recency(ago(-1000), now), 'hour');
+});
+
+test('recency filters use the same 12-hour green window as workflow names', () => {
+  const current = Date.now();
+  const workflows = [6, 18, 26].map((hours, index) => ({
+    id: index + 1, name: `Workflow ${index + 1}`, path: `${index + 1}.yml`,
+    lastRun: { startedAt: new Date(current - hours * 3_600_000).toISOString() }
+  }));
+  assert.deepEqual(filteredWorkflows(workflows, { filter: 'hour' }).map(item => item.id), [1]);
+  assert.deepEqual(filteredWorkflows(workflows, { filter: 'day' }).map(item => item.id), [2]);
+  assert.deepEqual(filteredWorkflows(workflows, { filter: 'week' }).map(item => item.id), [3]);
 });
 
 test('relative dates have a useful no-history and immediate state', () => {

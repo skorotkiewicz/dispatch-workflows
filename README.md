@@ -59,8 +59,8 @@ The latest run displays its result, branch, duration, and relative time. Hover t
 
 | Last started | Workflow name |
 | --- | --- |
-| Less than 1 hour ago | Green |
-| 1–24 hours ago | Dark yellow |
+| Less than 12 hours ago | Green |
+| 12–24 hours ago | Dark yellow |
 | 1–7 days ago, including exactly 7 days | Neutral |
 | More than 7 days ago | Red |
 | Never run | Gray, labeled “Never run” |

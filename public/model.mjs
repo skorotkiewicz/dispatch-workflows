@@ -1,7 +1,7 @@
 export function recency(date, now = Date.now()) {
   if (!date || !Number.isFinite(Date.parse(date))) return 'never';
   const age = Math.max(0, now - Date.parse(date));
-  if (age < 3_600_000) return 'hour';
+  if (age < 43_200_000) return 'hour';
   if (age < 86_400_000) return 'day';
   if (age <= 604_800_000) return 'week';
   return 'stale';
