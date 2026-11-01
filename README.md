@@ -1,6 +1,14 @@
 # Dispatch
 
+![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-5FA04E?logo=nodedotjs&logoColor=white)
+![JavaScript ES modules](https://img.shields.io/badge/JavaScript-ES_modules-F7DF1E?logo=javascript&logoColor=black)
+![GitHub Actions](https://img.shields.io/badge/GitHub-Actions-2088FF?logo=githubactions&logoColor=white)
+
 A local GUI for manually running GitHub Actions workflows. Save repository workspaces, see each workflow’s latest run, and start a workflow with one click. Enable **Allow multiple workflows** to build an ordered batch; the server starts the next workflow only after the previous one succeeds.
+
+<p align="center">
+  <img src="desktop.png" alt="Dispatch desktop interface for running GitHub Actions workflows" width="80%">
+</p>
 
 ## Start
 
