@@ -1,0 +1,16 @@
+{
+  "name": "dispatch-workflow-runner",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A local, sequential GitHub Actions workflow runner.",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node --watch server.mjs",
+    "test": "node --test test/*.test.mjs",
+    "test:ui": "playwright test"
+  },
+  "engines": { "node": ">=22" },
+  "dependencies": { "yaml": "^2.8.1" },
+  "devDependencies": { "@axe-core/playwright": "^4.10.2", "@playwright/test": "^1.56.1" }
+}

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#f6f7f8">
+  <title>Dispatch · Workflow runner</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to workflows</a>
+  <aside class="sidebar">
+    <a class="brand" href="/" aria-label="Dispatch home"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M8 7v18M8 16h15M23 7v18"/><circle cx="8" cy="7" r="3"/><circle cx="23" cy="16" r="3"/><circle cx="8" cy="25" r="3"/></svg></span>dispatch<span class="local-tag">LOCAL</span></a>
+    <div class="workspace-label">WORKSPACE</div>
+    <button id="repo-switch" class="repo-switch"><span class="repo-avatar" aria-hidden="true">/</span><span><strong id="sidebar-repo">Your repository</strong><small>GitHub Actions</small></span><span class="muted" aria-hidden="true">⌄</span></button>
+    <nav aria-label="Main navigation">
+      <button id="nav-workflows" class="nav-item active" aria-current="page"><span data-icon="workflow"></span>Workflows<span id="nav-count" class="count">—</span></button>
+      <button id="nav-activity" class="nav-item"><span data-icon="clock"></span>Latest activity</button>
+    </nav>
+    <div class="sidebar-bottom"><div class="local-status"><span class="dot green"></span>Running on your machine</div><p>Your token stays on this server.<br>Your workflows stay on GitHub.</p><button id="sidebar-settings" class="text-button"><span data-icon="settings"></span>Repository settings</button></div>
+  </aside>
+  <div class="app-shell">
+    <header class="topbar"><div class="breadcrumb"><span data-icon="github"></span><span id="breadcrumb-repo">Repository</span><span class="slash">/</span><strong id="breadcrumb-page">Workflows</strong></div><span id="connection" class="connection"><span class="dot"></span>Connecting</span></header>
+    <main id="main" tabindex="-1">
+      <div id="demo-banner" class="demo-banner" hidden><span><strong>A safe place to try things.</strong> Demo workflows are simulated. Nothing runs on GitHub.</span><button id="connect-repo" class="text-button">Connect a repository <span aria-hidden="true">↗</span></button></div>
+      <div id="error-banner" class="error-banner" role="alert" hidden><span id="error-message"></span><button id="dismiss-error" class="icon-button" aria-label="Dismiss error">×</button></div>
+      <section class="page-heading"><div><div class="eyebrow">GITHUB ACTIONS, WITHOUT THE EXTRA CLICKS</div><h1 id="page-title">Your workflows. Ready to run.</h1><p id="page-description">Pick a workflow, or line up a few. We’ll take it from here.</p></div><button id="refresh" class="secondary"><span data-icon="refresh"></span>Refresh</button></section>
+      <div class="workspace-grid">
+        <section class="workflow-section" aria-label="Repository workflows">
+          <div class="section-title"><h2 id="list-heading">Workflows <span id="workflow-count" class="count">—</span></h2><a id="github-link" class="quiet-link" target="_blank" rel="noreferrer" hidden>View on GitHub <span aria-hidden="true">↗</span></a></div>
+          <div class="table-toolbar"><div class="search-wrap"><span data-icon="search"></span><label class="sr-only" for="search">Search workflows</label><input id="search" type="search" placeholder="Find a workflow…" autocomplete="off"></div><label class="sr-only" for="recency-filter">Filter by last run</label><select id="recency-filter"><option value="all">All last runs</option><option value="hour">Within 1 hour</option><option value="day">1–24 hours ago</option><option value="week">1–7 days ago</option><option value="stale">Over 7 days ago</option><option value="never">Never run</option></select></div>
+          <div id="table-container" class="table-container" aria-busy="true"><div class="initial-loading">Loading your workflows…</div></div>
+          <div class="table-footer"><span id="result-count">Fetching workflows</span><label class="sort-control" for="sort">Sort by <select id="sort"><option value="name">Name A–Z</option><option value="recent">Most recent</option><option value="oldest">Oldest first</option></select></label></div>
+          <div class="recency-key" aria-label="Workflow name color legend"><span class="legend-label">LAST RUN</span><span><i class="dot green"></i>&lt; 1 hour</span><span><i class="dot yellow"></i>1–24 hours</span><span><i class="dot neutral"></i>1–7 days</span><span><i class="dot red"></i>&gt; 7 days</span><span><i class="dot never"></i>Never run</span></div>
+          <div class="explanation"><span data-icon="info"></span><p>Name colors show <strong>when a workflow last ran</strong>, not whether it passed. The result is shown separately.</p></div>
+        </section>
+        <aside class="queue-panel" aria-labelledby="queue-heading">
+          <div class="queue-title"><h2 id="queue-heading">Run queue</h2><span id="queue-count" class="count">0</span></div>
+          <div class="queue-settings"><label class="checkbox-label"><input id="allow-multiple" type="checkbox"><span>Allow multiple workflows</span></label><p id="mode-help">Off by default. Select one workflow at a time.</p><div class="branch-field"><label for="branch"><span data-icon="branch"></span>Run on branch</label><input id="branch" type="text" value="main" spellcheck="false" required autocomplete="off"></div></div>
+          <div class="queue-body"><div class="queue-subheading"><span id="queue-label">UP NEXT</span><button id="clear-selection" class="text-button small" hidden>Clear</button></div><div id="queue-items"><div class="queue-empty"><span class="empty-path" data-icon="queue"></span><strong>A little less clicking.</strong><p>Select a workflow to add it here.<br>Ready when you are.</p></div></div></div>
+          <div class="queue-actions"><button id="run-selected" class="primary" disabled><span data-icon="play"></span><span id="run-label">Run selected</span><kbd aria-hidden="true">↵</kbd></button><p id="run-help">Select a workflow to get started.</p><button id="stop-queue" class="secondary full" hidden>Stop after current workflow</button></div>
+          <div class="queue-note"><span data-icon="shield"></span><p><strong>One at a time. Always.</strong><br>Each workflow finishes before the next starts. A failure stops the queue.</p></div>
+        </aside>
+      </div>
+      <footer class="page-footer"><span><span class="dot green"></span><span id="sync-label">Waiting for first sync</span></span><span>Less tab-hopping. More shipping.</span></footer>
+    </main>
+  </div>
+  <dialog id="settings-dialog" aria-labelledby="settings-title"><form id="settings-form"><div class="dialog-heading"><div><div class="eyebrow">WORKSPACE SETTINGS</div><h2 id="settings-title">Connect your repository</h2></div><button type="button" class="icon-button close-dialog" aria-label="Close settings">×</button></div><p>Use your existing GitHub CLI login or a server-side token. Credentials never go to your browser.</p><label class="field-label" for="repository">GitHub repository URL</label><input id="repository" name="repository" type="text" placeholder="https://github.com/owner/repository" required aria-describedby="repository-help"><p id="repository-help" class="field-help">Also accepts owner/repository. GitHub.com repositories only.</p><div class="auth-note"><span data-icon="shield"></span><div><strong id="auth-label">Server-side authentication</strong><p>Run <code>gh auth login</code>, or start this app with <code>GH_TOKEN</code>. Your account needs Actions read and write access.</p></div></div><p id="settings-error" class="inline-error" role="alert" hidden></p><div class="dialog-actions"><button id="use-demo" type="button" class="secondary">Try demo</button><button id="save-settings" type="submit" class="primary">Connect repository</button></div></form></dialog>
+  <dialog id="inputs-dialog" aria-labelledby="inputs-title"><form id="inputs-form"><div class="dialog-heading"><div><div class="eyebrow">WORKFLOW DISPATCH</div><h2 id="inputs-title">Run options</h2></div><button type="button" class="icon-button close-dialog" aria-label="Close run options">×</button></div><p id="inputs-description"></p><div id="input-fields"></div><p id="inputs-error" class="inline-error" role="alert" hidden></p><div class="dialog-actions"><button type="button" class="secondary close-dialog">Cancel</button><button id="save-inputs" type="submit" class="primary">Save options</button></div></form></dialog>
+  <div id="mobile-run-bar" class="mobile-run-bar" hidden><button id="mobile-review" class="text-button">Review queue</button><button id="mobile-run" class="primary">Run selected</button></div>
+  <div id="announcement" class="sr-only" role="status" aria-live="polite"></div>
+</body>
+</html>
