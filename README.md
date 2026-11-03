@@ -1,128 +1,86 @@
 # Dispatch
 
-![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-5FA04E?logo=nodedotjs&logoColor=white)
-![JavaScript ES modules](https://img.shields.io/badge/JavaScript-ES_modules-F7DF1E?logo=javascript&logoColor=black)
-![GitHub Actions](https://img.shields.io/badge/GitHub-Actions-2088FF?logo=githubactions&logoColor=white)
+A native Rust desktop app for running GitHub Actions workflows, built with [`gpui-pre`](https://docs.rs/gpui-pre/0.3.9/gpui/). Connect repository workspaces, inspect the latest run of each workflow, and dispatch an ordered queue. Each workflow must succeed before the next one starts.
 
-A local GUI for manually running GitHub Actions workflows. Save repository workspaces, see each workflow’s latest run, and start a workflow with one click. Enable **Allow multiple workflows** to build an ordered batch; the server starts the next workflow only after the previous one succeeds.
+The desktop implementation lives in `dispatch-rs`. It talks directly to GitHub. It needs no Node.js runtime, local HTTP server, or browser UI.
 
-<p align="center">
-  <img src="desktop.png" alt="Dispatch desktop interface for running GitHub Actions workflows" width="80%">
-</p>
+## Run
 
-## Start
-
-Requires Node.js 22 or newer.
+Install Rust 1.98 or newer and [just](https://github.com/casey/just), then run the existing recipes from the Rust project:
 
 ```sh
-npm install
-npm start
+cd dispatch-rs
+just run
 ```
 
-Open **http://127.0.0.1:3000** and click **Connect a repository** to load your workflows.
+Without just:
+
+```sh
+cargo run --manifest-path dispatch-rs/Cargo.toml
+```
+
+GPUI uses the native graphics and windowing libraries for each platform. Linux builds enable Wayland and X11 and require a C/C++ toolchain, pkg-config, Fontconfig, FreeType, xkbcommon, and the corresponding development libraries. Running the desktop app requires a graphical session and a compatible graphics driver. The first build compiles GPUI and its graphics dependencies.
+
+```sh
+cd dispatch-rs
+just build       # Release binary in target/release/dispatch
+just fmt         # Format, then run strict Clippy checks
+just check       # Check formatting and run strict Clippy checks
+just test        # Check formatting, run Clippy, then run all tests
+```
 
 ## Connect GitHub
 
-1. Authenticate on the machine running the server:
-   ```sh
-   gh auth login --hostname github.com
-   ```
-   Alternatively, provide `GH_TOKEN` or `GITHUB_TOKEN` in the server environment. Do not put a token in browser storage or commit it to a file.
-2. If you authenticated after starting the app, restart it so it picks up the credentials.
-3. Click **Connect a repository** (or **+ Add workspace**), enter `https://github.com/owner/repository` or `owner/repository`, and connect.
-
-For a fine-grained personal access token, grant the target repository **Actions: read and write**, **Contents: read**, and **Metadata: read**. Your GitHub account must also have permission to run its workflows. Organization/SSO restrictions may require additional approval. Only GitHub.com is supported.
-
-Credentials remain on the server. Workspace IDs, repository names, branch preferences, and the last selected workspace are saved in `.data/config.json`. You can bootstrap the first workspace using `GITHUB_REPO=owner/repository` when no saved configuration exists. Existing single-repository settings migrate automatically.
-
-## Repository workspaces
-
-- Use **+ Add workspace** to save another repository, then switch using the sidebar selector. Adding an already saved repository selects its existing workspace.
-- Each workspace has its own workflows, saved branch, and server-side queue. Selections, filters, and input drafts stay separate while switching within a browser tab; reloading clears these drafts.
-- You can browse other workspaces while a queue runs. A banner identifies the running repository and takes you back to its queue. Only **one queue runs at a time across all workspaces**.
-- Each browser tab keeps its own viewed workspace. New tabs without a workspace URL open the last selected workspace.
-- Open **Workspace settings** to remove saved workspaces. Removal only changes local settings, never the GitHub repository. A workspace with a running queue cannot be removed.
-
-## Run workflows
-
-- Use the play button on any active workflow for a single run, or select a workflow and click **Run workflow**.
-- Single selection is the default. Check **Allow multiple workflows** to select a batch. This enables multiple *selections*, not parallel execution.
-- Selection order is execution order. Use the queue’s up/down buttons to reorder, or remove individual items.
-- Choose an existing **branch**; tags and commit SHAs are not supported. The repository’s default branch is selected initially; branch changes are validated and saved per workspace.
-- Workflow inputs are read from the YAML at that branch. Required inputs, choices, booleans, numbers, environment names, and defaults are supported. Use **Run options** to prepare values, or enter them when prompted at run time.
-- The workflow must have `workflow_dispatch` on the default branch. For example:
-  ```yaml
-  name: Refresh data
-  on:
-    workflow_dispatch:
-      inputs:
-        environment:
-          description: Target environment
-          type: choice
-          required: true
-          default: staging
-          options: [staging, production]
-  jobs:
-    refresh:
-      runs-on: ubuntu-latest
-      steps:
-        - run: printf '%s\n' 'Put your task here'
-  ```
-
-The latest run displays its result, branch, duration, and relative time. Hover the time for an exact timestamp; in a connected repository, click it to open the run on GitHub. **Latest activity** shows the latest run of each workflow, not the complete run history.
-
-### Name colors indicate recency, not success
-
-| Last started | Workflow name |
-| --- | --- |
-| Less than 12 hours ago | Green |
-| 12–24 hours ago | Dark yellow |
-| 1–7 days ago, including exactly 7 days | Neutral |
-| More than 7 days ago | Red |
-| Never run | Gray, labeled “Never run” |
-
-The separate result badge indicates success, failure, cancellation, or progress. Search, last-run filters, and sorting are available.
-
-## Queue behavior and safety
-
-- Queues run on the **local server**, so closing or refreshing the browser does not interrupt a batch. Keep the server process and its machine running.
-- Every workflow and input is validated before the first dispatch. Overlapping batch requests are rejected across all workspaces, even from multiple browser tabs. Existing active runs in other saved repositories block a new batch.
-- Before each dispatch, the server waits for existing active repository runs. The app never intentionally runs its selected workflows in parallel.
-- A failed, canceled, timed-out, skipped, or otherwise non-successful run stops the batch. Pending workflows are skipped.
-- **Stop after current workflow** skips pending items. It does **not** cancel a run already dispatched to GitHub. Use GitHub to cancel that run if necessary.
-- An uncertain dispatch response, ambiguous run identity, or monitoring error stops the batch. The server never automatically retries a dispatch. Inspect GitHub before starting another queue.
-- **Queues are in memory, not persisted.** Restarting the server loses monitoring and pending items; it never resumes or re-dispatches them. Already dispatched GitHub runs continue.
-- Repository-wide exclusivity is best effort. GitHub has no atomic repository-wide dispatch lock: another person, scheduler, or app can start a run between the checks. For strict guarantees across all callers, also configure GitHub Actions `concurrency` in the repository. This app is designed for one local server instance.
-- Existing-run waiting times out after 30 minutes, run discovery after 2 minutes, and monitoring after 24 hours. These errors stop the batch without canceling GitHub runs.
-
-The browser checks local status every 5 seconds. Live GitHub runs are monitored every 10 seconds. Workflow-list metadata is cached for at least 30 seconds (3 seconds per workflow for larger repositories) to preserve the GitHub API quota. **Refresh** explicitly bypasses that cache. GitHub rate limits and API availability still apply.
-
-The server binds only to `127.0.0.1`, checks Host and Origin headers, and does not expose credential/configuration files through its static server. Do not put it behind a public proxy or use it as a multi-user service.
-
-## Configuration
-
-| Environment variable | Purpose |
-| --- | --- |
-| `PORT` | Local HTTP port; default `3000` |
-| `GH_TOKEN` / `GITHUB_TOKEN` | Optional server-side GitHub token; falls back to `gh auth token` |
-| `GITHUB_REPO` | Initial repository when no saved configuration exists |
-| `DATA_DIR` | Configuration directory; defaults to `.data` in the app directory |
-
-## Verify
+Authenticate before opening Dispatch:
 
 ```sh
-npm test                  # Unit and backend integration tests; no GitHub dispatches
-npx playwright install chromium  # Only needed if Chromium is not already installed
-npm run test:ui           # Browser tests with a test-only fake GitHub adapter
+gh auth login --hostname github.com
 ```
 
-Browser tests cover workspace switching, isolated drafts, saved branches, cross-workspace queue blocking, multiple tabs, safe removal, sequential execution across a reload, input forms, error recovery, keyboard controls, automated accessibility checks, mobile/320px layouts, long untrusted names, RTL, and 200% zoom. Screenshots are written to the ignored `artifacts/` directory. Tests do not dispatch real GitHub workflows.
+Alternatively, provide `GH_TOKEN` or `GITHUB_TOKEN` in the application environment. Dispatch reads credentials at startup and keeps them in memory. Credentials are never written to workspace settings. Restart the app after changing authentication.
 
-## Files
+Click **Add workspace**, enter `owner/repository` or its `https://github.com` URL, and connect. Private repositories require authentication. Running workflows requires Actions write access and Contents read access. Only GitHub.com is supported.
 
-- `server.mjs`: local HTTP/API entry point
-- `lib/github.mjs`: authentication, GitHub API, YAML schemas, input validation
-- `lib/runner.mjs`: sequential execution and run tracking
-- `lib/workspaces.mjs`: saved workspaces, configuration migration, global queue lock
-- `public/`: dependency-free browser interface
-- `test/`: unit, integration, and Playwright tests
+## Workspaces and run options
+
+- Switch saved repositories using the sidebar. Each workspace keeps its branch, selection, search, filters, and input drafts separate.
+- The branch must exist in the repository. Click **Save branch** to validate and persist a branch preference.
+- Select one workflow, or enable **Allow multiple workflows** to build a batch. Selection order is execution order. Use the queue controls to reorder or remove items.
+- Click **Options** to prepare branch-specific inputs. Clicking **Run** walks through the selected workflows' input forms before launching. String, boolean, number, choice, and environment inputs are supported, including required values and defaults.
+- Dispatch validates every selected workflow and input before sending the first dispatch. Workflows must be active and support `workflow_dispatch`. Dispatch also checks the repository's default branch when running a different branch.
+- Workflow name colors show recency, separately from the result badge. Green means less than 12 hours, yellow means 12–24 hours, gray means 1–7 days, and red means more than 7 days. Workflows without a run are labeled **Never run**.
+- Search matches workflow names and paths. The filter and sort buttons cycle through their available modes. **Latest activity** lists the latest run of each workflow, newest first.
+- Run timestamps and execution links open the corresponding run on GitHub.
+- **Workspace settings** removes saved workspaces locally. Workspace additions and removals wait until the running queue finishes.
+
+## Queue behavior
+
+One queue runs at a time across saved workspaces. Dispatch checks other saved repositories for active runs before launch and again before each dispatch. It waits for active runs in the target repository before starting the next selected workflow.
+
+A failure, cancellation, non-successful conclusion, monitoring error, or uncertain dispatch response stops the batch and skips pending workflows. Dispatch never automatically retries a workflow dispatch. Ambiguous run discovery or mismatched run details also stop the batch.
+
+**Stop after current workflow** keeps monitoring a workflow already dispatched and skips pending items. It does not cancel runs on GitHub. Keep Dispatch open while a queue runs. Closing the window during execution asks before quitting. Quitting discards the queue and stops monitoring; already dispatched GitHub runs continue. Queues are held in memory and never resume automatically.
+
+The idle wait limit is 30 minutes, run discovery is 2 minutes, and monitoring is 24 hours. Monitoring polls GitHub every 10 seconds. Workflow metadata is cached for at least 30 seconds, or 3 seconds per workflow for larger repositories. **Refresh** bypasses that cache.
+
+Exclusivity is best effort because GitHub provides no atomic repository-wide dispatch lock. Other callers can start runs between checks. Use GitHub Actions `concurrency` when exclusivity must cover every caller. A file lock prevents two native Dispatch instances from sharing one configuration directory.
+
+## Settings and migration
+
+Workspace settings use the existing version 2 JSON format. The desktop app saves `config.json` in the operating system's application configuration directory for `dispatch`. Set `DATA_DIR` to choose a different configuration directory. `GITHUB_REPO=owner/repository` bootstraps a workspace only when there is no saved versioned configuration.
+
+On first startup, Dispatch imports `.data/config.json` from the working directory if native settings do not exist. When starting from `dispatch-rs`, it also checks the parent project's `.data/config.json`. The original file remains unchanged. An existing native configuration takes precedence. Invalid settings produce an error and are not overwritten.
+
+## Verification and source map
+
+The Rust tests use fake GitHub data and temporary settings. They never dispatch real workflows. Linux tests also lay out and exercise the native views and queue controls using GPUI's headless platform. A headless layout check does not verify GPU rendering on a graphical desktop.
+
+- `dispatch-rs/src/model.rs`: repository and branch validation, workflow inputs, run metadata and recency.
+- `dispatch-rs/src/config.rs`: atomic settings writes, migration and instance locking.
+- `dispatch-rs/src/github.rs`: authentication and GitHub REST requests.
+- `dispatch-rs/src/runner.rs`: preflight validation, sequential dispatch and run tracking.
+- `dispatch-rs/src/service.rs`: background requests, caching and workspace commands.
+- `dispatch-rs/src/ui.rs`: native workflow list, workspace drafts, input forms and queue controls.
+- `dispatch-rs/src/input.rs`: native text editing, selection, clipboard and IME handling.
+
+The original JavaScript implementation remains available as a reference. Its setup and tests are documented in [the browser implementation guide](docs/legacy-web.md).
