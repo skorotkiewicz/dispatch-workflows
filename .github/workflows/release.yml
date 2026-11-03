@@ -1,0 +1,110 @@
+name: Build and release
+
+on:
+  push:
+    tags:
+      - '**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # Ignore deletion or force-updates of an existing tag.
+    if: github.event.created == true && github.event.deleted == false
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux-x64
+          - runner: windows-2025
+            platform: win-x64
+          - runner: macos-15-intel
+            platform: macos-x64
+          - runner: macos-15
+            platform: macos-arm64
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set application version from tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync } from 'node:fs';
+          const version = process.env.RELEASE_TAG.replace(/^v/, '');
+          const numeric = '(?:0|[1-9][0-9]*)';
+          const identifier = '(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)';
+          const metadata = '[0-9A-Za-z-]+';
+          const semver = new RegExp(`^${numeric}[.]${numeric}[.]${numeric}(?:-${identifier}(?:[.]${identifier})*)?(?:[+]${metadata}(?:[.]${metadata})*)?$`);
+          if (!semver.test(version)) {
+            throw new Error('Release tags must be semantic versions, such as v1.2.3 or v1.2.3-beta.1.');
+          }
+          appendFileSync(process.env.GITHUB_ENV, `DISPATCH_VERSION=${version}\n`);
+          NODE
+
+      - name: Test backend and queue behavior
+        run: npm test
+
+      - name: Build desktop release
+        run: npm run desktop:build
+
+      - name: Upload installers and update bundles
+        uses: actions/upload-artifact@v7
+        with:
+          name: dispatch-${{ matrix.platform }}
+          path: dist/electrobun/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  release:
+    name: Publish GitHub release
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Download every platform build
+        uses: actions/download-artifact@v8
+        with:
+          pattern: dispatch-*
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Publish release with generated notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          options=(--verify-tag --title "Dispatch $RELEASE_TAG" --generate-notes)
+          if [[ "${RELEASE_TAG%%+*}" == *-* ]]; then
+            options+=(--prerelease --latest=false)
+          fi
+          gh release create "$RELEASE_TAG" "${options[@]}" release-artifacts/*

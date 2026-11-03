@@ -4,7 +4,7 @@ export default {
   app: {
     name: 'Dispatch',
     identifier: 'app.dispatch.workflows',
-    version: '1.0.0',
+    version: process.env.DISPATCH_VERSION || '1.0.0',
     description: 'Run GitHub Actions workflows in order.',
   },
   build: {

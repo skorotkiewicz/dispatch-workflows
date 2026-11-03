@@ -42,6 +42,19 @@ GitHub authentication works the same way in both modes. Closing the desktop app 
 
 Desktop HTTPS requests use the runtime's default trusted certificates, including additional roots configured through `NODE_EXTRA_CA_CERTS`.
 
+### GitHub releases
+
+The release workflow runs only when a new tag is pushed. It tests and builds Linux x64, Windows x64, macOS Intel, and macOS Apple Silicon packages, then publishes a GitHub release after every build succeeds. Installers and update bundles are attached as release assets.
+
+Use a semantic version tag, with an optional `v` prefix:
+
+```sh
+git tag v1.0.1
+git push origin v1.0.1
+```
+
+The tag sets the packaged application version through `DISPATCH_VERSION`; no version-edit commit is required. Tags such as `v1.1.0-beta.1` produce prereleases. Branch pushes and updates to existing tags do not build releases. Builds use the unsigned packaging configuration in `electrobun.config.ts` and the repository's automatic `GITHUB_TOKEN` to publish.
+
 ## Connect GitHub
 
 1. Authenticate on the machine running the server:
