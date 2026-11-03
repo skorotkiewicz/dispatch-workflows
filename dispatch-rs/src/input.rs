@@ -716,15 +716,15 @@ impl Render for TextInput {
 }
 
 pub fn bind_keys(cx: &mut App) {
-    for modifier in ["ctrl", "cmd"] {
-        cx.bind_keys([
-            KeyBinding::new(&format!("{modifier}-a"), SelectAll, Some("TextInput")),
-            KeyBinding::new(&format!("{modifier}-c"), Copy, Some("TextInput")),
-            KeyBinding::new(&format!("{modifier}-v"), Paste, Some("TextInput")),
-            KeyBinding::new(&format!("{modifier}-x"), Cut, Some("TextInput")),
-        ]);
-    }
     cx.bind_keys([
+        KeyBinding::new("ctrl-a", SelectAll, Some("TextInput")),
+        KeyBinding::new("ctrl-c", Copy, Some("TextInput")),
+        KeyBinding::new("ctrl-v", Paste, Some("TextInput")),
+        KeyBinding::new("ctrl-x", Cut, Some("TextInput")),
+        KeyBinding::new("cmd-a", SelectAll, Some("TextInput")),
+        KeyBinding::new("cmd-c", Copy, Some("TextInput")),
+        KeyBinding::new("cmd-v", Paste, Some("TextInput")),
+        KeyBinding::new("cmd-x", Cut, Some("TextInput")),
         KeyBinding::new("backspace", Backspace, Some("TextInput")),
         KeyBinding::new("delete", Delete, Some("TextInput")),
         KeyBinding::new("left", Left, Some("TextInput")),
