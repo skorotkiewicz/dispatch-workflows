@@ -55,6 +55,27 @@ git push origin v1.0.1
 
 The tag sets the packaged application version through `DISPATCH_VERSION`; no version-edit commit is required. Tags such as `v1.1.0-beta.1` produce prereleases. Branch pushes and updates to existing tags do not build releases. Builds use the unsigned packaging configuration in `electrobun.config.ts` and the repository's automatic `GITHUB_TOKEN` to publish.
 
+### Arch Linux and AUR
+
+`arch/PKGBUILD` packages the published Linux x64 release as `dispatch-workflows-bin`. It installs the bundled app under `/opt/dispatch-workflows`, adds the `dispatch-workflows` command and a desktop entry, and includes the MIT license. Build and install locally with:
+
+```sh
+cd arch
+makepkg -si
+```
+
+After GitHub publishes a stable release, the workflow updates `pkgver`, the exact source tag, and SHA-256 checksums, generates `.SRCINFO`, and builds the Arch package before publishing its build files to AUR. The `aur-package-metadata` workflow artifact contains the prepared files. Prereleases and tags with build metadata do not update the stable AUR package.
+
+Configure these repository Actions secrets before the first AUR publication:
+
+| Secret | Purpose |
+| --- | --- |
+| `AUR_USERNAME` | Commit author name for AUR updates |
+| `AUR_EMAIL` | Commit author email for AUR updates |
+| `AUR_SSH_PRIVATE_KEY` | Private SSH key whose public key is registered with the AUR account maintaining `dispatch-workflows-bin` |
+
+The deploy action can create the AUR package on the first push if the name is available. For an existing package, the SSH key's account must be a maintainer or co-maintainer. Package upgrades are managed through pacman or your AUR helper; the packaging process does not run the standalone installer.
+
 ## Connect GitHub
 
 1. Authenticate on the machine running the server:

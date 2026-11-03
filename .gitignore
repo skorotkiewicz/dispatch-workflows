@@ -9,3 +9,8 @@ build/
 dist/
 .hutch/
 .cottontail-tmp/
+arch/src/
+arch/pkg/
+arch/*.pkg.tar.*
+arch/*.tar.zst
+arch/*.log
