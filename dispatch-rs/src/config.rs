@@ -5,7 +5,7 @@ use std::{
     collections::HashSet,
     fs::{self, File},
     io::Write,
-    path::{Path, PathBuf},
+    path::PathBuf,
 };
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -101,39 +101,25 @@ impl Store {
             .config_dir()
             .join("config.json"))
     }
-    pub fn load(&self, legacy: Option<&Path>, bootstrap: Option<&str>) -> Result<Config> {
-        let source = if self.path.exists() {
-            Some(self.path.as_path())
-        } else {
-            legacy.filter(|p| p.exists())
-        };
-        let mut migrated = false;
-        let mut config = if let Some(source) = source {
-            let value: serde_json::Value = serde_json::from_slice(&fs::read(source)?)
-                .context("Could not read workspace configuration. Existing settings were kept.")?;
-            if value.get("version").is_some() {
-                serde_json::from_value(value).context("Invalid workspace configuration.")?
-            } else {
-                migrated = true;
-                ensure!(
-                    value.is_null()
-                        || value
-                            .as_object()
-                            .is_some_and(|o| o.contains_key("repository")),
-                    "Invalid legacy settings."
-                );
-                let repo = match value.get("repository") {
-                    Some(serde_json::Value::String(repo)) => Some(repo.as_str()),
-                    None | Some(serde_json::Value::Null) => bootstrap,
-                    _ => anyhow::bail!("Invalid legacy repository."),
-                };
-                bootstrap_config(repo)?
+    pub fn load(&self, bootstrap: Option<&str>) -> Result<Config> {
+        let (mut config, fresh) = match fs::read(&self.path) {
+            Ok(bytes) => (
+                serde_json::from_slice::<Config>(&bytes).context(
+                    "Could not read workspace configuration. Existing settings were kept.",
+                )?,
+                false,
+            ),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                (bootstrap_config(bootstrap)?, true)
             }
-        } else {
-            bootstrap_config(bootstrap)?
+            Err(error) => {
+                return Err(error).context(
+                    "Could not read workspace configuration. Existing settings were kept.",
+                );
+            }
         };
         config.validate()?;
-        if migrated || source != Some(self.path.as_path()) {
+        if fresh {
             self.save(&config)?;
         }
         Ok(config)

@@ -2,7 +2,7 @@
 
 A native Rust desktop app for running GitHub Actions workflows, built with [`gpui-pre`](https://docs.rs/gpui-pre/0.3.9/gpui/). Connect repository workspaces, inspect the latest run of each workflow, and dispatch an ordered queue. Each workflow must succeed before the next one starts.
 
-The desktop implementation lives in `dispatch-rs`. It talks directly to GitHub. It needs no Node.js runtime, local HTTP server, or browser UI.
+The desktop implementation lives in `dispatch-rs`. It talks directly to GitHub.
 
 ## Run
 
@@ -57,19 +57,19 @@ Click **Add workspace**, enter `owner/repository` or its `https://github.com` UR
 
 One queue runs at a time across saved workspaces. Dispatch checks other saved repositories for active runs before launch and again before each dispatch. It waits for active runs in the target repository before starting the next selected workflow.
 
-A failure, cancellation, non-successful conclusion, monitoring error, or uncertain dispatch response stops the batch and skips pending workflows. Dispatch never automatically retries a workflow dispatch. Ambiguous run discovery or mismatched run details also stop the batch.
+A failure, cancellation, non-successful conclusion, monitoring error, or uncertain dispatch response stops the batch and skips pending workflows. Dispatch never automatically retries a workflow dispatch. A dispatch must return a valid workflow run ID. Missing IDs or mismatched run details also stop the batch; Dispatch monitors only the ID returned by its dispatch request.
 
 **Stop after current workflow** keeps monitoring a workflow already dispatched and skips pending items. It does not cancel runs on GitHub. Keep Dispatch open while a queue runs. Closing the window during execution asks before quitting. Quitting discards the queue and stops monitoring; already dispatched GitHub runs continue. Queues are held in memory and never resume automatically.
 
-The idle wait limit is 30 minutes, run discovery is 2 minutes, and monitoring is 24 hours. Monitoring polls GitHub every 10 seconds. Workflow metadata is cached for at least 30 seconds, or 3 seconds per workflow for larger repositories. **Refresh** bypasses that cache.
+The idle wait limit is 30 minutes and monitoring is 24 hours. Monitoring polls GitHub every 10 seconds. Workflow metadata is cached for at least 30 seconds, or 3 seconds per workflow for larger repositories. **Refresh** bypasses that cache.
 
 Exclusivity is best effort because GitHub provides no atomic repository-wide dispatch lock. Other callers can start runs between checks. Use GitHub Actions `concurrency` when exclusivity must cover every caller. A file lock prevents two native Dispatch instances from sharing one configuration directory.
 
-## Settings and migration
+## Settings
 
-Workspace settings use the existing version 2 JSON format. The desktop app saves `config.json` in the operating system's application configuration directory for `dispatch`. Set `DATA_DIR` to choose a different configuration directory. `GITHUB_REPO=owner/repository` bootstraps a workspace only when there is no saved versioned configuration.
+Native workspace settings use version 2 JSON. The desktop app saves `config.json` in the operating system's application configuration directory for `dispatch`. Set `DATA_DIR` to choose a different configuration directory. `GITHUB_REPO=owner/repository` bootstraps a workspace only when there is no saved configuration.
 
-On first startup, Dispatch imports `.data/config.json` from the working directory if native settings do not exist. When starting from `dispatch-rs`, it also checks the parent project's `.data/config.json`. The original file remains unchanged. An existing native configuration takes precedence. Invalid settings produce an error and are not overwritten.
+Dispatch reads only its configured settings file. Invalid or unsupported settings produce an error and are not overwritten.
 
 ## Verification and source map
 
@@ -85,11 +85,9 @@ DISPATCH_PREVIEW_DIR=../artifacts/native cargo test --features visual-tests --bi
 The UI bundles its fonts and SVG icons so typography and controls render consistently across systems.
 
 - `dispatch-rs/src/model.rs`: repository and branch validation, workflow inputs, run metadata and recency.
-- `dispatch-rs/src/config.rs`: atomic settings writes, migration and instance locking.
+- `dispatch-rs/src/config.rs`: atomic settings writes and instance locking.
 - `dispatch-rs/src/github.rs`: authentication and GitHub REST requests.
 - `dispatch-rs/src/runner.rs`: preflight validation, sequential dispatch and run tracking.
 - `dispatch-rs/src/service.rs`: background requests, caching and workspace commands.
 - `dispatch-rs/src/ui.rs`: native workflow list, workspace drafts, input forms and queue controls.
 - `dispatch-rs/src/input.rs`: native text editing, selection, clipboard and IME handling.
-
-The original JavaScript implementation remains available as a reference. Its setup and tests are documented in [the browser implementation guide](docs/legacy-web.md).

@@ -1,6 +1,5 @@
 use crate::{github::GitHub, model::*};
 use anyhow::{Result, bail, ensure};
-use chrono::Utc;
 use serde_json::{Map, Value};
 use std::{
     collections::HashSet,
@@ -36,7 +35,6 @@ pub struct Prepared {
 pub struct Timing {
     pub poll: Duration,
     pub idle: Duration,
-    pub discovery: Duration,
     pub monitor: Duration,
 }
 impl Default for Timing {
@@ -44,7 +42,6 @@ impl Default for Timing {
         Self {
             poll: Duration::from_secs(10),
             idle: Duration::from_secs(1800),
-            discovery: Duration::from_secs(120),
             monitor: Duration::from_secs(86400),
         }
     }
@@ -117,7 +114,6 @@ pub fn execute(
     stop: &AtomicBool,
     prepared: Vec<Prepared>,
     repositories: &[String],
-    actor: Option<&str>,
     timing: &Timing,
 ) {
     let (repo, branch) = {
@@ -141,7 +137,6 @@ pub fn execute(
             item,
             stop,
             repositories,
-            actor,
             timing,
             |status, run| {
                 let mut q = queue.lock().unwrap();
@@ -210,7 +205,6 @@ fn run_one(
     prepared: &Prepared,
     stop: &AtomicBool,
     repositories: &[String],
-    actor: Option<&str>,
     timing: &Timing,
     mut update: impl FnMut(&str, Option<Run>),
 ) -> Result<()> {
@@ -219,60 +213,14 @@ fn run_one(
         return Ok(());
     }
     let id = prepared.workflow.id;
-    let known: HashSet<_> = api
-        .dispatch_runs(repo, id, branch)?
-        .iter()
-        .map(|run| run.id)
-        .collect();
-    if !wait_idle(api, repo, stop, timing)? {
-        return Ok(());
-    }
     check_other_runs(api, repo, repositories)?;
     if stop.load(Ordering::SeqCst) {
         return Ok(());
     }
     update("dispatching", None);
-    let dispatched_at = Utc::now();
-    // Never retry this POST, including after network or response errors.
-    let detail = api.dispatch(repo, id, branch, &prepared.inputs)?;
+    // Monitor only the run ID returned by this dispatch. Never retry the POST.
+    let run_id = api.dispatch(repo, id, branch, &prepared.inputs)?;
     update("waiting", None);
-    let run_id = if let Some(id) = detail {
-        id
-    } else {
-        let start = Instant::now();
-        loop {
-            let candidates: Vec<_> = api
-                .dispatch_runs(repo, id, branch)?
-                .into_iter()
-                .filter(|run| {
-                    !known.contains(&run.id)
-                        && run.workflow_id == id
-                        && run.event == "workflow_dispatch"
-                        && run.head_branch.as_deref() == Some(branch)
-                        && run.run_attempt.unwrap_or(1) == 1
-                        && run.created_at >= dispatched_at - chrono::Duration::seconds(2)
-                        && actor.is_none_or(|actor| {
-                            run.actor
-                                .as_ref()
-                                .is_some_and(|a| a.login.eq_ignore_ascii_case(actor))
-                        })
-                })
-                .collect();
-            ensure!(
-                candidates.len() <= 1,
-                "Dispatch tracking is ambiguous. Inspect GitHub; no further workflows will be dispatched."
-            );
-            if let Some(run) = candidates.first() {
-                break run.id;
-            }
-            ensure!(
-                start.elapsed() < timing.discovery,
-                "Could not identify the dispatched run. Inspect GitHub; dispatch will not be retried."
-            );
-            // A stop request still monitors a dispatch that was already sent.
-            pause(timing.poll, None);
-        }
-    };
     let start = Instant::now();
     loop {
         let run = api.run(repo, run_id)?;

@@ -117,12 +117,6 @@ pub struct Run {
     pub updated_at: DateTime<Utc>,
     #[serde(default)]
     pub html_url: String,
-    #[serde(default)]
-    pub actor: Option<Actor>,
-}
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Actor {
-    pub login: String,
 }
 impl Run {
     pub fn started(&self) -> DateTime<Utc> {

@@ -18,16 +18,14 @@ pub trait GitHub: Send + Sync {
     fn latest(&self, repo: &str, id: u64) -> Result<Option<Run>>;
     fn schema(&self, repo: &str, workflow: &Workflow, branch: &str) -> Result<Schema>;
     fn validate_branch(&self, repo: &str, branch: &str) -> Result<()>;
-    fn actor(&self) -> Result<Option<String>>;
     fn active(&self, repo: &str) -> Result<Vec<Run>>;
-    fn dispatch_runs(&self, repo: &str, id: u64, branch: &str) -> Result<Vec<Run>>;
     fn dispatch(
         &self,
         repo: &str,
         id: u64,
         branch: &str,
         inputs: &Map<String, Value>,
-    ) -> Result<Option<u64>>;
+    ) -> Result<u64>;
     fn run(&self, repo: &str, id: u64) -> Result<Run>;
 }
 
@@ -236,22 +234,6 @@ impl GitHub for ClientGitHub {
         );
         Ok(())
     }
-    fn actor(&self) -> Result<Option<String>> {
-        if self.token.is_none() {
-            return Ok(None);
-        }
-        match self.get::<Value>("/user", &[]) {
-            Ok(data) => Ok(data["login"].as_str().map(str::to_owned)),
-            Err(error)
-                if ["GitHub 401:", "GitHub 403:", "GitHub 404:"]
-                    .iter()
-                    .any(|s| error.to_string().starts_with(s)) =>
-            {
-                Ok(None)
-            }
-            Err(error) => Err(error),
-        }
-    }
     fn active(&self, repo: &str) -> Result<Vec<Run>> {
         let mut all: Vec<Run> = vec![];
         for status in ["in_progress", "queued", "waiting", "requested", "pending"] {
@@ -268,23 +250,13 @@ impl GitHub for ClientGitHub {
         }
         Ok(all)
     }
-    fn dispatch_runs(&self, repo: &str, id: u64, branch: &str) -> Result<Vec<Run>> {
-        self.pages(
-            &format!("{}/actions/workflows/{id}/runs", repo_path(repo)?),
-            "workflow_runs",
-            &[
-                ("event", "workflow_dispatch".into()),
-                ("branch", branch.into()),
-            ],
-        )
-    }
     fn dispatch(
         &self,
         repo: &str,
         id: u64,
         branch: &str,
         inputs: &Map<String, Value>,
-    ) -> Result<Option<u64>> {
+    ) -> Result<u64> {
         ensure!(
             self.token.is_some(),
             "Authenticate with gh auth login or GH_TOKEN/GITHUB_TOKEN before running workflows."
@@ -295,16 +267,7 @@ impl GitHub for ClientGitHub {
             &[],
             Some(json!({"ref": branch, "inputs": inputs, "return_run_details": true})),
         )?;
-        if data.is_null() {
-            return Ok(None);
-        }
-        let id = data.get("workflow_run_id").or_else(|| data.get("id"));
-        id.map(|id| {
-            id.as_u64()
-                .filter(|id| *id > 0)
-                .context("Invalid dispatch run ID. Dispatch will not be retried.")
-        })
-        .transpose()
+        confirmed_run_id(&data)
     }
     fn run(&self, repo: &str, id: u64) -> Result<Run> {
         self.get(&format!("{}/actions/runs/{id}", repo_path(repo)?), &[])
@@ -346,5 +309,39 @@ fn resolve_auth() -> (Option<String>, String) {
     match cli() {
         Ok(token) => (Some(token), "gh".into()),
         Err(_) => (None, "none".into()),
+    }
+}
+
+fn confirmed_run_id(data: &Value) -> Result<u64> {
+    data.get("workflow_run_id")
+        .and_then(Value::as_u64)
+        .filter(|id| *id > 0)
+        .context("GitHub did not return a valid workflow run ID. Dispatch outcome is uncertain; it will not be retried. Inspect GitHub before starting another queue.")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dispatch_requires_a_confirmed_workflow_run_id() {
+        assert_eq!(
+            confirmed_run_id(&json!({"workflow_run_id": 9001})).unwrap(),
+            9001
+        );
+        for response in [
+            Value::Null,
+            json!({}),
+            json!({"id": 9001}),
+            json!({"workflow_run_id": null}),
+            json!({"workflow_run_id": 0}),
+            json!({"workflow_run_id": -1}),
+            json!({"workflow_run_id": "9001"}),
+            json!({"workflow_run_id": 1.5}),
+        ] {
+            let error = confirmed_run_id(&response).unwrap_err().to_string();
+            assert!(error.contains("uncertain"));
+            assert!(error.contains("will not be retried"));
+        }
     }
 }

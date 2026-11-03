@@ -24,8 +24,7 @@ struct FakeState {
     dispatches: usize,
     failure: bool,
     uncertain: bool,
-    legacy: bool,
-    ambiguous: bool,
+    missing_run_id: bool,
     mismatch: bool,
     rerun: bool,
     active: bool,
@@ -66,9 +65,6 @@ fn make_run(id: u64, workflow: u64) -> Run {
         created_at: Utc::now(),
         updated_at: Utc::now(),
         html_url: format!("https://github.com/acme/repo/actions/runs/{id}"),
-        actor: Some(Actor {
-            login: "operator".into(),
-        }),
         ..Run::default()
     }
 }
@@ -104,9 +100,6 @@ impl GitHub for Fake {
         }
         Ok(())
     }
-    fn actor(&self) -> Result<Option<String>> {
-        Ok(Some("operator".into()))
-    }
     fn active(&self, repo: &str) -> Result<Vec<Run>> {
         let mut s = self.state.lock().unwrap();
         s.events.push(format!("idle:{repo}"));
@@ -116,28 +109,7 @@ impl GitHub for Fake {
             vec![]
         })
     }
-    fn dispatch_runs(&self, _: &str, id: u64, _: &str) -> Result<Vec<Run>> {
-        let s = self.state.lock().unwrap();
-        let mut runs: Vec<_> = s
-            .runs
-            .values()
-            .filter(|r| r.workflow_id == id)
-            .cloned()
-            .collect();
-        if s.ambiguous && !runs.is_empty() {
-            let mut duplicate = runs[0].clone();
-            duplicate.id += 100;
-            runs.push(duplicate);
-        }
-        Ok(runs)
-    }
-    fn dispatch(
-        &self,
-        _: &str,
-        workflow: u64,
-        _: &str,
-        _: &Map<String, Value>,
-    ) -> Result<Option<u64>> {
+    fn dispatch(&self, _: &str, workflow: u64, _: &str, _: &Map<String, Value>) -> Result<u64> {
         let mut s = self.state.lock().unwrap();
         s.dispatches += 1;
         s.events.push(format!("dispatch:{workflow}"));
@@ -153,7 +125,12 @@ impl GitHub for Fake {
         if let Some(stop) = &s.stop_after_dispatch {
             stop.store(true, Ordering::SeqCst);
         }
-        Ok(if s.legacy { None } else { Some(id) })
+        if s.missing_run_id {
+            bail!(
+                "GitHub did not return a valid workflow run ID. Dispatch outcome is uncertain; it will not be retried."
+            )
+        }
+        Ok(id)
     }
     fn run(&self, _: &str, id: u64) -> Result<Run> {
         let mut s = self.state.lock().unwrap();
@@ -172,7 +149,6 @@ fn timing() -> Timing {
     Timing {
         poll: Duration::ZERO,
         idle: Duration::ZERO,
-        discovery: Duration::ZERO,
         monitor: Duration::ZERO,
     }
 }
@@ -201,7 +177,6 @@ fn run_batch(api: &Fake, stop: &AtomicBool) -> Queue {
         stop,
         prepared,
         &["acme/repo".into(), "acme/other".into()],
-        Some("operator"),
         &timing(),
     );
     queue.lock().unwrap().clone()
@@ -368,24 +343,21 @@ fn uncertain_dispatch_is_never_retried() {
     assert!(queue.error.unwrap().contains("uncertain"));
 }
 #[test]
-fn legacy_dispatch_tracks_a_single_matching_run() {
+fn a_dispatch_without_a_confirmed_run_id_stops_without_retry() {
     let api = Fake::default();
-    api.state.lock().unwrap().legacy = true;
+    api.state.lock().unwrap().missing_run_id = true;
     let queue = run_batch(&api, &AtomicBool::new(false));
-    assert!(queue.error.is_none());
-    assert_eq!(api.state.lock().unwrap().dispatches, 2);
-}
-#[test]
-fn ambiguous_legacy_tracking_stops_batch() {
-    let api = Fake::default();
-    {
-        let mut s = api.state.lock().unwrap();
-        s.legacy = true;
-        s.ambiguous = true;
-    }
-    let queue = run_batch(&api, &AtomicBool::new(false));
-    assert!(queue.error.unwrap().contains("ambiguous"));
-    assert_eq!(api.state.lock().unwrap().dispatches, 1);
+    let state = api.state.lock().unwrap();
+    assert_eq!(state.dispatches, 1);
+    assert!(
+        !state
+            .events
+            .iter()
+            .any(|event| event.starts_with("complete:"))
+    );
+    assert_eq!(queue.items[0].status, "failed");
+    assert_eq!(queue.items[1].status, "skipped");
+    assert!(queue.error.unwrap().contains("workflow run ID"));
 }
 #[test]
 fn mismatched_or_rerun_details_stop_batch() {
@@ -451,34 +423,39 @@ fn recency_boundaries_match_the_original() {
     assert_eq!(recency(None, now), Recency::Never);
 }
 #[test]
-fn workspace_migration_and_atomic_persistence_keep_existing_choices() {
+fn native_workspace_persistence_keeps_existing_choices() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("config.json");
-    std::fs::write(&path, r#"{"repository":"acme/repo"}"#).unwrap();
     let store = Store::open(path.clone()).unwrap();
-    let mut config = store.load(None, None).unwrap();
+    let mut config = store.load(Some("acme/repo")).unwrap();
     assert_eq!(config.workspaces[0].repository, "acme/repo");
+    let workspace_id = config.workspaces[0].id.clone();
     config.workspaces[0].branch = Some("release".into());
     store.save(&config).unwrap();
-    let loaded = store.load(None, Some("ignored/repo")).unwrap();
+    let persisted = std::fs::read(&path).unwrap();
+    let loaded = store.load(Some("ignored/repo")).unwrap();
     assert_eq!(loaded.workspaces[0].branch.as_deref(), Some("release"));
+    assert_eq!(loaded.workspaces[0].id, workspace_id);
+    assert_eq!(std::fs::read(&path).unwrap(), persisted);
     assert_eq!(
-        serde_json::from_slice::<Value>(&std::fs::read(path).unwrap()).unwrap()["version"],
+        serde_json::from_slice::<Value>(&persisted).unwrap()["version"],
         2
     );
 }
 #[test]
-fn importing_web_settings_leaves_the_original_intact() {
+fn new_native_settings_ignore_nearby_configuration() {
     let dir = tempfile::tempdir().unwrap();
-    let legacy = dir.path().join("legacy.json");
-    let native = dir.path().join("native/config.json");
+    let nearby = dir.path().join(".data/config.json");
+    std::fs::create_dir_all(nearby.parent().unwrap()).unwrap();
     let original = r#"{"version":2,"activeWorkspaceId":"w1","workspaces":[{"id":"w1","repository":"acme/repo","branch":"stable"}]}"#;
-    std::fs::write(&legacy, original).unwrap();
-    let store = Store::open(native).unwrap();
-    let config = store.load(Some(&legacy), None).unwrap();
-    assert_eq!(config.active_workspace_id.as_deref(), Some("w1"));
-    assert_eq!(config.workspaces[0].branch.as_deref(), Some("stable"));
-    assert_eq!(std::fs::read_to_string(legacy).unwrap(), original);
+    std::fs::write(&nearby, original).unwrap();
+    let native = dir.path().join("native/config.json");
+    let store = Store::open(native.clone()).unwrap();
+    let config = store.load(None).unwrap();
+    assert!(config.workspaces.is_empty());
+    assert!(config.active_workspace_id.is_none());
+    assert!(native.exists());
+    assert_eq!(std::fs::read_to_string(nearby).unwrap(), original);
 }
 #[test]
 fn malformed_configuration_is_not_overwritten() {
@@ -486,6 +463,9 @@ fn malformed_configuration_is_not_overwritten() {
         "{broken",
         "{}",
         "[]",
+        "null",
+        r#"{"repository":"acme/repo"}"#,
+        r#"{"repository":null}"#,
         r#"{"version":3,"workspaces":[],"activeWorkspaceId":null}"#,
         r#"{"version":2,"workspaces":[],"activeWorkspaceId":"missing"}"#,
     ] {
@@ -493,7 +473,7 @@ fn malformed_configuration_is_not_overwritten() {
         let path = dir.path().join("config.json");
         std::fs::write(&path, original).unwrap();
         let store = Store::open(path.clone()).unwrap();
-        assert!(store.load(None, None).is_err());
+        assert!(store.load(None).is_err());
         assert_eq!(std::fs::read_to_string(path).unwrap(), original);
     }
 }
@@ -518,13 +498,7 @@ fn duplicate_workspaces_are_rejected_and_empty_settings_override_bootstrap() {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(dir.path().join("config.json")).unwrap();
     store.save(&Config::default()).unwrap();
-    assert!(
-        store
-            .load(None, Some("acme/repo"))
-            .unwrap()
-            .workspaces
-            .is_empty()
-    );
+    assert!(store.load(Some("acme/repo")).unwrap().workspaces.is_empty());
 }
 #[test]
 fn only_one_native_instance_can_open_the_same_settings() {
