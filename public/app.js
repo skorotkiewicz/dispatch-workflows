@@ -1,6 +1,8 @@
 import { recency, relativeTime, escapeHTML as esc, runDate, filteredWorkflows } from './model.mjs';
 
 const $ = id => document.getElementById(id);
+const desktop = new URL(location.href).searchParams.get('desktop') === '1';
+if (desktop) document.querySelector('.brand').href = '/?desktop=1';
 const paths = {
   workflow: '<rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="15" width="6" height="6" rx="1"/><path d="M6 9v9h9M9 6h9v9"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
@@ -137,7 +139,7 @@ function renderQueue(force = false) {
   $('queue-items').innerHTML = queueHTML + (queued.error ? `<p class="queue-error" role="status">${esc(queued.error)}</p>` : '');
   $('run-selected').disabled = !selected.length || runBlocked() || !$('branch').value.trim();
   $('run-label').textContent = switching ? 'Switching workspace…' : busy ? 'Preparing workflows…' : queued.running ? 'Queue is running' : `Run ${selected.length ? selected.length === 1 ? 'workflow' : `${selected.length} workflows` : 'selected'}`;
-  $('run-help').textContent = state.mode === 'setup' ? 'Connect a repository before running workflows.' : queued.running ? 'You can close this tab. Keep the local server running.' : busy ? 'Preparing this workspace. Nothing new has been dispatched yet.' : state.globalQueue ? `Wait for ${state.globalQueue.repository} to finish. Your selection is kept here.` : !$('branch').value.trim() ? 'Enter a branch to run on.' : selected.length ? `${selected.length === 1 ? 'Runs' : 'Runs sequentially'} on ${$('branch').value.trim()}.` : 'Select a workflow to get started.';
+  $('run-help').textContent = state.mode === 'setup' ? 'Connect a repository before running workflows.' : queued.running ? desktop ? 'Keep Dispatch open while the queue runs.' : 'You can close this tab. Keep the local server running.' : busy ? 'Preparing this workspace. Nothing new has been dispatched yet.' : state.globalQueue ? `Wait for ${state.globalQueue.repository} to finish. Your selection is kept here.` : !$('branch').value.trim() ? 'Enter a branch to run on.' : selected.length ? `${selected.length === 1 ? 'Runs' : 'Runs sequentially'} on ${$('branch').value.trim()}.` : 'Select a workflow to get started.';
   $('allow-multiple').disabled = blocked();
   $('branch').disabled = blocked();
   renderMobileBar();

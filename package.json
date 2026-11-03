@@ -7,10 +7,23 @@
   "scripts": {
     "start": "node server.mjs",
     "dev": "node --watch server.mjs",
+    "desktop": "electrobun dev",
+    "desktop:dev": "electrobun dev --watch",
+    "desktop:build": "electrobun build --env=stable",
     "test": "node --test test/*.test.mjs",
+    "test:desktop": "node --test test/desktop.smoke.mjs",
+    "test:desktop:github": "node --test test/desktop.github.smoke.mjs",
     "test:ui": "playwright test"
   },
-  "engines": { "node": ">=22" },
-  "dependencies": { "yaml": "^2.8.1" },
-  "devDependencies": { "@axe-core/playwright": "^4.10.2", "@playwright/test": "^1.56.1" }
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.10.2",
+    "@playwright/test": "^1.56.1",
+    "electrobun": "2.0.5"
+  }
 }

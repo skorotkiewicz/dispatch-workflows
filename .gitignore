@@ -5,3 +5,7 @@ node_modules/
 playwright-report/
 test-results/
 artifacts/
+build/
+dist/
+.hutch/
+.cottontail-tmp/

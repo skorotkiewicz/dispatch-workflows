@@ -21,6 +21,27 @@ npm start
 
 Open **http://127.0.0.1:3000** and click **Connect a repository** to load your workflows.
 
+## Desktop app
+
+Dispatch also runs in a native [Electrobun](https://electrobun.dev/electrobun/) window using the same interface and workflow backend. It uses the system webview and Electrobun's experimental Cottontail runtime to keep the package smaller, without bundling Chromium or Bun. The backend test suite also runs successfully under Cottontail.
+
+```sh
+npm install
+npm run desktop           # Build and launch the desktop app
+npm run desktop:dev       # Rebuild and relaunch when source files change
+npm run desktop:build     # Create a release for the current OS and architecture
+```
+
+The first desktop command downloads the pinned Electrobun toolchain. You do not need a global Electrobun installation. Linux requires GTK 3 and WebKitGTK 4.1; macOS and Windows use their system webviews.
+
+Release installers and update bundles are written to `dist/electrobun/`. On Linux, extract `linux-x64-Dispatch-Setup.tar.gz` for x64 builds and run the setup executable inside it. End users do not need Node.js, Bun, or the source files. Packages include a compressed payload, so the download, launcher, and installed app sizes differ.
+
+Desktop settings live in the operating system's per-user app data directory, scoped to `app.dispatch.workflows` and the release channel. Set `DATA_DIR` to an absolute directory to choose another location. To share existing browser-mode workspaces, set it to the source installation's `.data` directory before launching. Development and stable desktop builds keep separate settings by default. The desktop server chooses an available loopback port automatically; `PORT` applies to browser mode.
+
+GitHub authentication works the same way in both modes. Closing the desktop app stops monitoring and skips pending workflows. If a queue is active, Dispatch asks before closing. Runs already started on GitHub continue.
+
+Desktop HTTPS requests use the runtime's default trusted certificates, including additional roots configured through `NODE_EXTRA_CA_CERTS`.
+
 ## Connect GitHub
 
 1. Authenticate on the machine running the server:
@@ -33,7 +54,7 @@ Open **http://127.0.0.1:3000** and click **Connect a repository** to load your w
 
 For a fine-grained personal access token, grant the target repository **Actions: read and write**, **Contents: read**, and **Metadata: read**. Your GitHub account must also have permission to run its workflows. Organization/SSO restrictions may require additional approval. Only GitHub.com is supported.
 
-Credentials remain on the server. Workspace IDs, repository names, branch preferences, and the last selected workspace are saved in `.data/config.json`. You can bootstrap the first workspace using `GITHUB_REPO=owner/repository` when no saved configuration exists. Existing single-repository settings migrate automatically.
+Credentials remain in the backend process. Workspace IDs, repository names, branch preferences, and the last selected workspace are saved in `config.json` in the settings directory, which defaults to `.data` in browser mode. You can bootstrap the first workspace using `GITHUB_REPO=owner/repository` when no saved configuration exists. Existing single-repository settings migrate automatically.
 
 ## Repository workspaces
 
@@ -103,10 +124,10 @@ The server binds only to `127.0.0.1`, checks Host and Origin headers, and does n
 
 | Environment variable | Purpose |
 | --- | --- |
-| `PORT` | Local HTTP port; default `3000` |
+| `PORT` | Browser-mode HTTP port; default `3000`. Desktop mode uses an available port |
 | `GH_TOKEN` / `GITHUB_TOKEN` | Optional server-side GitHub token; falls back to `gh auth token` |
 | `GITHUB_REPO` | Initial repository when no saved configuration exists |
-| `DATA_DIR` | Configuration directory; defaults to `.data` in the app directory |
+| `DATA_DIR` | Configuration directory; defaults to `.data` in the app directory in browser mode, or the per-user app data directory in desktop mode |
 
 ## Verify
 
@@ -114,13 +135,22 @@ The server binds only to `127.0.0.1`, checks Host and Origin headers, and does n
 npm test                  # Unit and backend integration tests; no GitHub dispatches
 npx playwright install chromium  # Only needed if Chromium is not already installed
 npm run test:ui           # Browser tests with a test-only fake GitHub adapter
+npm run test:desktop      # Linux native webview smoke test; build the release first
+npm run test:desktop:github  # Opt-in public GitHub HTTPS check in the packaged app
 ```
 
 Browser tests cover workspace switching, isolated drafts, saved branches, cross-workspace queue blocking, multiple tabs, safe removal, sequential execution across a reload, input forms, error recovery, keyboard controls, automated accessibility checks, mobile/320px layouts, long untrusted names, RTL, and 200% zoom. Screenshots are written to the ignored `artifacts/` directory. Tests do not dispatch real GitHub workflows.
 
+The Linux desktop smoke test requires `WebKitWebDriver`, `tar`, `zstd`, and a graphical session. It extracts and launches the release payload with isolated settings and no GitHub credentials, checks the native UI and repository validation, and writes `artifacts/electrobun-desktop.png`.
+
+The `test:desktop:github` check also connects to `octocat/Hello-World` to verify real HTTPS requests from the packaged runtime. It reads public repository metadata without credentials and never dispatches workflows. Network regression tests are kept separate from the offline test suite in `test/network/`.
+
 ## Files
 
 - `server.mjs`: local HTTP/API entry point
+- `lib/application.mjs`: shared HTTP/API server for browser and desktop modes
+- `desktop/`: native window, desktop server startup, and shutdown handling
+- `electrobun.config.ts`, `hutch.config.ts`: pinned desktop build configuration
 - `lib/github.mjs`: authentication, GitHub API, YAML schemas, input validation
 - `lib/runner.mjs`: sequential execution and run tracking
 - `lib/workspaces.mjs`: saved workspaces, configuration migration, global queue lock

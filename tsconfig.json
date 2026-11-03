@@ -1,0 +1,11 @@
+{
+  "extends": "./.hutch/devkit/tsconfig.json",
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowJs": true,
+    "noEmit": true
+  },
+  "include": ["desktop/**/*.ts", "electrobun.config.ts", "hutch.config.ts"]
+}
