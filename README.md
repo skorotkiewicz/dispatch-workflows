@@ -57,10 +57,11 @@ The tag sets the packaged application version through `DISPATCH_VERSION`; no ver
 
 ### Arch Linux and AUR
 
-`arch/PKGBUILD` packages the published Linux x64 release as `dispatch-workflows-bin`. It installs the bundled app under `/opt/dispatch-workflows`, adds the `dispatch-workflows` command and a desktop entry, and includes the MIT license. Build and install locally with:
+`arch/PKGBUILD` is the release template for `dispatch-workflows-bin`, with `pkgver=0.0.0` and `SKIP` checksums. The workflow fills in the actual version and calculates the checksums; `.SRCINFO` is generated only in CI. The package installs the bundled app under `/opt/dispatch-workflows`, adds the `dispatch-workflows` command and a desktop entry, and includes the MIT license.
+
+To build locally, download and extract the `aur-package-metadata` artifact from a successful release workflow, then run this inside the extracted directory:
 
 ```sh
-cd arch
 makepkg -si
 ```
 

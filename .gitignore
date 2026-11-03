@@ -10,6 +10,7 @@ dist/
 .hutch/
 .cottontail-tmp/
 arch/src/
+arch/.SRCINFO
 arch/pkg/
 arch/*.pkg.tar.*
 arch/*.tar.zst
