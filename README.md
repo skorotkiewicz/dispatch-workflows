@@ -144,6 +144,10 @@ The server binds only to `127.0.0.1`, checks Host and Origin headers, and does n
 
 ## Verify
 
+If you use `just`, run `just` to list the project recipes. `just build` packages the desktop app, `just run` starts browser mode, and `just desktop` launches desktop mode. `just check` checks JavaScript syntax, justfile formatting, and the release workflow with actionlint; it requires Go and network access to resolve actionlint. `just test` runs the backend tests, while `just vet` runs both checks and tests. The recipes require Bash.
+
+After committing release changes, `just add-tag 1.0.1` creates and pushes `v1.0.1` to trigger the release workflow. Without a version argument it uses `package.json`.
+
 ```sh
 npm test                  # Unit and backend integration tests; no GitHub dispatches
 npx playwright install chromium  # Only needed if Chromium is not already installed
