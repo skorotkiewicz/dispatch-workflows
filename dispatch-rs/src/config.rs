@@ -12,12 +12,14 @@ use std::{
 pub struct Workspace {
     pub id: String,
     pub repository: String,
+    #[serde(deserialize_with = "required_optional")]
     pub branch: Option<String>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
     pub version: u32,
+    #[serde(deserialize_with = "required_optional")]
     pub active_workspace_id: Option<String>,
     pub workspaces: Vec<Workspace>,
 }
@@ -167,4 +169,10 @@ fn bootstrap_config(repo: Option<&str>) -> Result<Config> {
         config.active_workspace_id = Some(id);
     }
     Ok(config)
+}
+
+fn required_optional<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error> {
+    Option::<String>::deserialize(deserializer)
 }

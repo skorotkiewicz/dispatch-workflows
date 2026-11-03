@@ -89,6 +89,7 @@ pub struct Dispatch {
     close_requested: Arc<AtomicBool>,
     last_refresh: Instant,
     focus: FocusHandle,
+    dialog_focus: FocusHandle,
 }
 impl Dispatch {
     pub fn new(handle: Handle, window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -118,6 +119,7 @@ impl Dispatch {
             close_requested,
             last_refresh: Instant::now(),
             focus: cx.focus_handle(),
+            dialog_focus: cx.focus_handle(),
         };
         this.sync(cx);
         cx.spawn(async move |entity, cx| {
@@ -218,6 +220,7 @@ impl Dispatch {
                     })
                 })
                 .collect();
+            let skip_empty_form = *launching && reply.schema.inputs.is_empty();
             self.dialog = Some(Dialog::Inputs(Form {
                 workflow: *id,
                 branch: branch.clone(),
@@ -225,6 +228,9 @@ impl Dispatch {
                 fields,
                 launching: *launching,
             }));
+            if skip_empty_form {
+                self.next_form(cx);
+            }
         }
         if self.close_requested.swap(false, Ordering::SeqCst) {
             self.dialog = Some(Dialog::Quit);
@@ -477,6 +483,7 @@ impl Dispatch {
             .when(enabled, |d| {
                 d.hover(|s| s.bg(rgb(if primary { 0x005e4c } else { 0xf0f5f2 })))
             })
+            .role(Role::Button)
             .child(label.into())
             .on_click(cx.listener(move |this, _, window, cx| {
                 cx.stop_propagation();
@@ -1020,6 +1027,7 @@ impl Dispatch {
             );
         }
         div()
+            .track_focus(&self.dialog_focus)
             .absolute()
             .inset_0()
             .occlude()
@@ -1068,6 +1076,13 @@ impl Render for Dispatch {
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this,event: &KeyDownEvent,window,cx| {
                 if event.keystroke.key == "escape" && this.dialog.is_some() { this.act(Action::Close,window,cx); }
+                if event.keystroke.key == "tab" {
+                    window.prevent_default(); cx.stop_propagation();
+                    for _ in 0..1024 {
+                        if event.keystroke.modifiers.shift { window.focus_prev(cx); } else { window.focus_next(cx); }
+                        if this.dialog.is_none() || this.dialog_focus.contains_focused(window,cx) { break; }
+                    }
+                }
             }))
             .child(self.sidebar(cx))
             .child(div().flex_1().min_w_0().h_full().flex().flex_col()
@@ -1191,6 +1206,16 @@ mod tests {
                 token.clear(cx);
             };
             draw(cx);
+            window.update(cx, |_,window,cx| {
+                let field = cx.new(|cx| TextInput::new("😀x", "", cx));
+                field.update(cx, |field,cx| {
+                    field.replace_and_mark_text_in_range(Some(2..3), "é", Some(0..1), window, cx);
+                    assert_eq!(field.value(), "😀é");
+                    assert_eq!(field.selected_text_range(false,window,cx).unwrap().range,2..3);
+                    field.replace_text_in_range(None,"z",window,cx);
+                    assert_eq!(field.value(), "😀z");
+                });
+            }).unwrap();
             window.update(cx, |view,window,cx| {
                 view.act(Action::Select(1),window,cx); view.act(Action::Select(2),window,cx);
                 assert_eq!(view.draft().unwrap().selected,vec![2]);

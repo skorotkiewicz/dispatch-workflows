@@ -62,9 +62,18 @@ impl Handle {
         let store = Store::open(Store::default_path()?)?;
         let directory = std::env::current_dir()?;
         let local_legacy = directory.join(".data/config.json");
-        let legacy = if !local_legacy.exists() && directory.file_name().is_some_and(|name| name == "dispatch-rs") {
-            directory.parent().unwrap_or(&directory).join(".data/config.json")
-        } else { local_legacy };
+        let legacy = if !local_legacy.exists()
+            && directory
+                .file_name()
+                .is_some_and(|name| name == "dispatch-rs")
+        {
+            directory
+                .parent()
+                .unwrap_or(&directory)
+                .join(".data/config.json")
+        } else {
+            local_legacy
+        };
         let config = store.load(Some(&legacy), std::env::var("GITHUB_REPO").ok().as_deref())?;
         let (handle, receiver) = Self::channel(Snapshot {
             config,
