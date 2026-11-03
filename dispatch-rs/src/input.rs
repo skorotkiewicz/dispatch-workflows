@@ -36,8 +36,15 @@ pub struct TextInput {
     last_bounds: Option<Bounds<Pixels>>,
     is_selecting: bool,
     scroll_x: Pixels,
+    appearance: InputAppearance,
 }
 
+#[derive(Clone, Copy)]
+enum InputAppearance {
+    Field,
+    Search,
+    Branch,
+}
 impl TextInput {
     pub fn new(value: &str, placeholder: &str, cx: &mut Context<Self>) -> Self {
         Self {
@@ -51,7 +58,18 @@ impl TextInput {
             last_bounds: None,
             is_selecting: false,
             scroll_x: px(0.),
+            appearance: InputAppearance::Field,
         }
+    }
+    pub fn search(cx: &mut Context<Self>) -> Self {
+        let mut field = Self::new("", "Find a workflow...", cx);
+        field.appearance = InputAppearance::Search;
+        field
+    }
+    pub fn branch(value: &str, cx: &mut Context<Self>) -> Self {
+        let mut field = Self::new(value, "Branch", cx);
+        field.appearance = InputAppearance::Branch;
+        field
     }
     pub fn value(&self) -> String {
         self.content.to_string()
@@ -621,6 +639,9 @@ impl Element for TextElement {
 
 impl Render for TextInput {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let search = matches!(self.appearance, InputAppearance::Search);
+        let branch = matches!(self.appearance, InputAppearance::Branch);
+        let height = if branch { 36. } else { 44. };
         div()
             .id("text-input")
             .flex()
@@ -654,20 +675,40 @@ impl Render for TextInput {
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
-            .bg(rgb(0xffffff))
+            .h(px(height))
+            .items_center()
+            .overflow_hidden()
+            .bg(rgb(if branch { 0xfafcfb } else { 0xffffff }))
             .border_1()
-            .border_color(rgb(0xdce2df))
+            .border_color(rgb(if branch { 0xabb8b0 } else { 0xb9c4c0 }))
             .rounded_md()
             .focus(|s| s.border_color(rgb(0x208060)))
-            .line_height(px(24.))
-            .text_size(px(14.))
+            .line_height(px(20.))
+            .font_family(if branch {
+                crate::assets::MONO_FONT
+            } else {
+                crate::assets::UI_FONT
+            })
+            .text_size(px(if branch { 12. } else { 13. }))
             .text_color(rgb(0x26332d))
+            .when(search, |d| {
+                d.child(
+                    div().ml(px(12.)).text_color(rgb(0x7c8982)).child(
+                        svg()
+                            .path("icons/search.svg")
+                            .size(px(16.))
+                            .text_color(rgb(0x7c8982)),
+                    ),
+                )
+            })
             .child(
                 div()
-                    .h(px(38.))
-                    .w_full()
-                    .px_3()
-                    .py(px(6.))
+                    .h(px(height - 2.))
+                    .flex_1()
+                    .min_w_0()
+                    .pl(px(if search { 8. } else { 12. }))
+                    .pr(px(12.))
+                    .py(px((height - 22.) / 2.))
                     .overflow_hidden()
                     .child(TextElement { input: cx.entity() }),
             )

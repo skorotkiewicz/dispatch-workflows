@@ -73,7 +73,16 @@ On first startup, Dispatch imports `.data/config.json` from the working director
 
 ## Verification and source map
 
-The Rust tests use fake GitHub data and temporary settings. They never dispatch real workflows. Linux tests also lay out and exercise the native views and queue controls using GPUI's headless platform. A headless layout check does not verify GPU rendering on a graphical desktop.
+The Rust tests use fake GitHub data and temporary settings. They never dispatch real workflows. Linux tests also lay out and exercise the native views and queue controls using GPUI's headless platform.
+
+An optional visual test renders the native interface offscreen using a real GPU or software Vulkan adapter. It uses sample repositories and writes previews at desktop and compact window sizes:
+
+```sh
+cd dispatch-rs
+DISPATCH_PREVIEW_DIR=../artifacts/native cargo test --features visual-tests --bin dispatch render_desktop_previews -- --ignored
+```
+
+The UI bundles its fonts and SVG icons so typography and controls render consistently across systems.
 
 - `dispatch-rs/src/model.rs`: repository and branch validation, workflow inputs, run metadata and recency.
 - `dispatch-rs/src/config.rs`: atomic settings writes, migration and instance locking.

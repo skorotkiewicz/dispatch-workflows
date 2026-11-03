@@ -8,6 +8,7 @@ description = "Native desktop runner for sequential GitHub Actions workflows"
 [features]
 default = ["desktop"]
 desktop = ["dep:gpui", "dep:gpui_platform", "dep:unicode-segmentation"]
+visual-tests = ["desktop", "gpui/test-support", "gpui_platform/test-support"]
 
 [[bin]]
 name = "dispatch"
