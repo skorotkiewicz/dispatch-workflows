@@ -1,0 +1,30 @@
+pkgname=dispatch-workflows-bin
+pkgver=0.0.0
+pkgrel=1
+pkgdesc='Desktop runner for sequential GitHub Actions workflows'
+arch=('x86_64')
+url='https://github.com/skorotkiewicz/dispatch-workflows'
+license=('MIT')
+depends=('ca-certificates' 'gcc-libs' 'glibc' 'gtk3' 'libayatana-appindicator' 'webkit2gtk-4.1')
+optdepends=('github-cli: authenticate using gh auth login instead of a token')
+provides=("dispatch-workflows=${pkgver}")
+conflicts=('dispatch-workflows')
+options=('!strip' '!debug')
+
+_tag=v0.0.0
+source=('LICENSE' 'dispatch-workflows.desktop')
+source_x86_64=("${pkgname}-${pkgver}.tar.zst::${url}/releases/download/${_tag}/stable-linux-x64-Dispatch.tar.zst")
+sha256sums=('SKIP' 'SKIP')
+sha256sums_x86_64=('SKIP')
+
+package() {
+  install -dm755 "${pkgdir}/opt/dispatch-workflows" "${pkgdir}/usr/bin"
+  cp -a "${srcdir}/Dispatch/." "${pkgdir}/opt/dispatch-workflows/"
+  ln -s /opt/dispatch-workflows/bin/launcher "${pkgdir}/usr/bin/dispatch-workflows"
+  install -Dm644 "${srcdir}/dispatch-workflows.desktop" \
+    "${pkgdir}/usr/share/applications/dispatch-workflows.desktop"
+  install -Dm644 "${srcdir}/Dispatch/Resources/app/public/favicon.svg" \
+    "${pkgdir}/usr/share/icons/hicolor/scalable/apps/dispatch-workflows.svg"
+  install -Dm644 "${srcdir}/LICENSE" \
+    "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}
