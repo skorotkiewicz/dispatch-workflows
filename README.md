@@ -29,6 +29,12 @@ just check       # Check formatting and run strict Clippy checks
 just test        # Check formatting, run Clippy, then run all tests
 ```
 
+## Releases
+
+Version tags build the native Rust app for Linux x64, Windows x64, and macOS Intel and Apple Silicon. Releases contain `dispatch-workflows-VERSION-PLATFORM` archives and `SHA256SUMS`. Linux archives contain the `dispatch` executable, Windows archives contain `dispatch.exe`, and macOS archives contain `Dispatch.app`.
+
+The stable `dispatch-workflows-bin` AUR package installs the Linux release as `dispatch-workflows`, together with its desktop entry, icon, and licenses. Release packaging checks can be run with `python3 -m unittest discover -s .github/scripts -p 'test_*.py'`.
+
 ## Connect GitHub
 
 Authenticate before opening Dispatch:

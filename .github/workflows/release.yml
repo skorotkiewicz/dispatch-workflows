@@ -12,71 +12,118 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: 1.98.0
+
 jobs:
   build:
     # Ignore deletion or force-updates of an existing tag.
     if: github.event.created == true && github.event.deleted == false
     name: Build ${{ matrix.platform }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         include:
           - runner: ubuntu-24.04
             platform: linux-x64
+            target: x86_64-unknown-linux-gnu
+            binary: dispatch
           - runner: windows-2025
             platform: win-x64
+            target: x86_64-pc-windows-msvc
+            binary: dispatch.exe
           - runner: macos-15-intel
             platform: macos-x64
+            target: x86_64-apple-darwin
+            binary: dispatch
           - runner: macos-15
             platform: macos-arm64
+            target: aarch64-apple-darwin
+            binary: dispatch
     defaults:
       run:
         shell: bash
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '13.0'
     steps:
       - name: Check out tagged source
         uses: actions/checkout@v7
         with:
           persist-credentials: false
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
+      - name: Set up Python for release packaging
+        uses: actions/setup-python@v7
         with:
-          node-version: '24'
-          cache: npm
+          python-version: '3.13'
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            build-essential clang cmake pkg-config \
+            libfontconfig1-dev libfreetype6-dev libwayland-dev \
+            libx11-xcb-dev libxkbcommon-x11-dev libvulkan1
+
+      - name: Install Rust toolchain
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt,clippy --target "$BUILD_TARGET"
+          rustup default "$RUST_TOOLCHAIN"
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: dispatch-rs -> target
+          key: ${{ matrix.target }}
 
       - name: Set application version from tag
         env:
           RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          node --input-type=module <<'NODE'
-          import { appendFileSync } from 'node:fs';
-          const version = process.env.RELEASE_TAG.replace(/^v/, '');
-          const numeric = '(?:0|[1-9][0-9]*)';
-          const identifier = '(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)';
-          const metadata = '[0-9A-Za-z-]+';
-          const semver = new RegExp(`^${numeric}[.]${numeric}[.]${numeric}(?:-${identifier}(?:[.]${identifier})*)?(?:[+]${metadata}(?:[.]${metadata})*)?$`);
-          if (!semver.test(version)) {
-            throw new Error('Release tags must be semantic versions, such as v1.2.3 or v1.2.3-beta.1.');
-          }
-          appendFileSync(process.env.GITHUB_ENV, `DISPATCH_VERSION=${version}\n`);
-          NODE
+        run: python .github/scripts/release.py set-version "$RELEASE_TAG"
+
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path dispatch-rs/Cargo.toml --check
+
+      - name: Test release packaging
+        run: python -m unittest discover -s .github/scripts -p 'test_*.py'
 
       - name: Test backend and queue behavior
-        run: npm test
+        run: cargo test --manifest-path dispatch-rs/Cargo.toml --locked --no-default-features
 
-      - name: Build desktop release
-        run: npm run desktop:build
+      - name: Check native desktop build
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+        run: cargo clippy --manifest-path dispatch-rs/Cargo.toml --locked --target "$BUILD_TARGET" --all-targets -- -D warnings
 
-      - name: Upload installers and update bundles
+      - name: Test native UI behavior
+        if: runner.os == 'Linux'
+        run: cargo test --manifest-path dispatch-rs/Cargo.toml --locked --bin dispatch
+
+      - name: Build native desktop release
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+        run: cargo build --manifest-path dispatch-rs/Cargo.toml --locked --release --target "$BUILD_TARGET" --bin dispatch
+
+      - name: Package native release
+        env:
+          RELEASE_PLATFORM: ${{ matrix.platform }}
+          BUILD_TARGET: ${{ matrix.target }}
+          BUILD_BINARY: ${{ matrix.binary }}
+        run: |
+          python .github/scripts/release.py package \
+            --platform "$RELEASE_PLATFORM" --version "$DISPATCH_VERSION" \
+            --binary "dispatch-rs/target/$BUILD_TARGET/release/$BUILD_BINARY" --output dist
+
+      - name: Upload native release archive
         uses: actions/upload-artifact@v7
         with:
           name: dispatch-${{ matrix.platform }}
-          path: dist/electrobun/*
+          path: dist/dispatch-workflows-*
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
@@ -95,6 +142,10 @@ jobs:
           pattern: dispatch-*
           path: release-artifacts
           merge-multiple: true
+
+      - name: Generate archive checksums
+        working-directory: release-artifacts
+        run: sha256sum -- *.tar.gz *.zip > SHA256SUMS
 
       - name: Publish release with generated notes
         env:
@@ -137,7 +188,6 @@ jobs:
           useradd -m builder
           printf 'builder ALL=(ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/builder
           chmod 440 /etc/sudoers.d/builder
-          cp LICENSE arch/LICENSE
           chown -R builder:builder "$GITHUB_WORKSPACE/arch"
 
       - name: Update PKGBUILD and generate .SRCINFO
@@ -164,8 +214,6 @@ jobs:
           path: |
             arch/PKGBUILD
             arch/.SRCINFO
-            arch/LICENSE
-            arch/dispatch-workflows.desktop
           include-hidden-files: true
           if-no-files-found: error
 
@@ -175,10 +223,7 @@ jobs:
         with:
           pkgname: dispatch-workflows-bin
           pkgbuild: ./arch/PKGBUILD
-          assets: |
-            ./arch/.SRCINFO
-            ./arch/LICENSE
-            ./arch/dispatch-workflows.desktop
+          assets: ./arch/.SRCINFO
           commit_username: ${{ secrets.AUR_USERNAME }}
           commit_email: ${{ secrets.AUR_EMAIL }}
           ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}

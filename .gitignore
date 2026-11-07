@@ -6,3 +6,4 @@ playwright-report/
 test-results/
 artifacts/
 dispatch-rs/target/
+__pycache__/
