@@ -19,16 +19,14 @@ class ReleaseTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(prefix="dispatch-release-test-")
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
-        self.native = self.root / "dispatch-rs"
-        self.native.mkdir()
-        self.manifest = self.native / "Cargo.toml"
-        self.lock = self.native / "Cargo.lock"
+        self.manifest = self.root / "Cargo.toml"
+        self.lock = self.root / "Cargo.lock"
         self.manifest.write_text('[package]\nname = "dispatch-rs"\nversion = "0.1.0"\n\n[dependencies]\nanyhow = "1"\n', encoding="utf-8")
         self.lock.write_text('version = 4\n\n[[package]]\nname = "anyhow"\nversion = "1.0.0"\n\n[[package]]\nname = "dispatch-rs"\nversion = "0.1.0"\ndependencies = ["anyhow"]\n', encoding="utf-8")
 
     def stage_resources(self):
-        for name in ("arch/LICENSE", "arch/dispatch-workflows.desktop", "arch/dispatch-workflows.svg", "README.md",
-                     "dispatch-rs/LICENSE-APACHE", "dispatch-rs/THIRD_PARTY.md", "dispatch-rs/assets/fonts/OFL.txt"):
+        for name in ("LICENSE", "arch/dispatch-workflows.desktop", "arch/dispatch-workflows.svg", "README.md",
+                     "LICENSE-APACHE", "THIRD_PARTY.md", "assets/fonts/OFL.txt"):
             destination = self.root / name
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(release.ROOT / name, destination)
@@ -68,7 +66,6 @@ class ReleaseTests(unittest.TestCase):
                 self.assertIn(f"Dispatch/{name}", names)
             self.assertEqual(package.extractfile("Dispatch/dispatch").read(), binary.read_bytes())
             self.assertEqual(package.getmember("Dispatch/dispatch").mode, 0o755)
-            self.assertFalse(any("node_modules" in name or "Resources/app" in name for name in names))
 
     def test_windows_archive_contains_executable_and_licenses(self):
         binary = self.stage_resources()

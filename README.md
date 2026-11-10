@@ -1,28 +1,26 @@
 # Dispatch
 
-A native Rust desktop app for running GitHub Actions workflows, built with [`gpui-pre`](https://docs.rs/gpui-pre/0.3.9/gpui/). Connect repository workspaces, inspect the latest run of each workflow, and dispatch an ordered queue. Each workflow must succeed before the next one starts.
+A native Rust desktop app for running GitHub Actions workflows, built with [`gpui-pre`](https://docs.rs/gpui-pre/0.3.11/gpui/). Connect repository workspaces, inspect the latest run of each workflow, and dispatch an ordered queue. Each workflow must succeed before the next one starts.
 
-The desktop implementation lives in `dispatch-rs`. It talks directly to GitHub.
+Dispatch talks directly to GitHub. The Rust project is at the repository root.
 
 ## Run
 
-Install Rust 1.98 or newer and [just](https://github.com/casey/just), then run the existing recipes from the Rust project:
+Install Rust 1.98 or newer and [just](https://github.com/casey/just), then run from the repository root:
 
 ```sh
-cd dispatch-rs
 just run
 ```
 
 Without just:
 
 ```sh
-cargo run --manifest-path dispatch-rs/Cargo.toml
+cargo run
 ```
 
 GPUI uses the native graphics and windowing libraries for each platform. Linux builds enable Wayland and X11 and require a C/C++ toolchain, pkg-config, Fontconfig, FreeType, xkbcommon, and the corresponding development libraries. Running the desktop app requires a graphical session and a compatible graphics driver. The first build compiles GPUI and its graphics dependencies.
 
 ```sh
-cd dispatch-rs
 just build       # Release binary in target/release/dispatch
 just fmt         # Format, then run strict Clippy checks
 just check       # Check formatting and run strict Clippy checks
@@ -84,16 +82,15 @@ The Rust tests use fake GitHub data and temporary settings. They never dispatch 
 An optional visual test renders the native interface offscreen using a real GPU or software Vulkan adapter. It uses sample repositories and writes previews at desktop and compact window sizes:
 
 ```sh
-cd dispatch-rs
-DISPATCH_PREVIEW_DIR=../artifacts/native cargo test --features visual-tests --bin dispatch render_desktop_previews -- --ignored
+DISPATCH_PREVIEW_DIR=artifacts/native cargo test --features visual-tests --bin dispatch render_desktop_previews -- --ignored
 ```
 
 The UI bundles its fonts and SVG icons so typography and controls render consistently across systems.
 
-- `dispatch-rs/src/model.rs`: repository and branch validation, workflow inputs, run metadata and recency.
-- `dispatch-rs/src/config.rs`: atomic settings writes and instance locking.
-- `dispatch-rs/src/github.rs`: authentication and GitHub REST requests.
-- `dispatch-rs/src/runner.rs`: preflight validation, sequential dispatch and run tracking.
-- `dispatch-rs/src/service.rs`: background requests, caching and workspace commands.
-- `dispatch-rs/src/ui.rs`: native workflow list, workspace drafts, input forms and queue controls.
-- `dispatch-rs/src/input.rs`: native text editing, selection, clipboard and IME handling.
+- `src/model.rs`: repository and branch validation, workflow inputs, run metadata and recency.
+- `src/config.rs`: atomic settings writes and instance locking.
+- `src/github.rs`: authentication and GitHub REST requests.
+- `src/runner.rs`: preflight validation, sequential dispatch and run tracking.
+- `src/service.rs`: background requests, caching and workspace commands.
+- `src/ui.rs`: native workflow list, workspace drafts, input forms and queue controls.
+- `src/input.rs`: native text editing, selection, clipboard and IME handling.

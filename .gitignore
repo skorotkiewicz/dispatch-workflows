@@ -1,9 +1,7 @@
-node_modules/
+/target/
+/dist/
+/artifacts/
 .data/
 .env
 .env.*
-playwright-report/
-test-results/
-artifacts/
-dispatch-rs/target/
 __pycache__/

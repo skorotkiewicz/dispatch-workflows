@@ -78,7 +78,6 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: dispatch-rs -> target
           key: ${{ matrix.target }}
 
       - name: Set application version from tag
@@ -87,27 +86,27 @@ jobs:
         run: python .github/scripts/release.py set-version "$RELEASE_TAG"
 
       - name: Check Rust formatting
-        run: cargo fmt --manifest-path dispatch-rs/Cargo.toml --check
+        run: cargo fmt --check
 
       - name: Test release packaging
         run: python -m unittest discover -s .github/scripts -p 'test_*.py'
 
       - name: Test backend and queue behavior
-        run: cargo test --manifest-path dispatch-rs/Cargo.toml --locked --no-default-features
+        run: cargo test --locked --no-default-features
 
       - name: Check native desktop build
         env:
           BUILD_TARGET: ${{ matrix.target }}
-        run: cargo clippy --manifest-path dispatch-rs/Cargo.toml --locked --target "$BUILD_TARGET" --all-targets -- -D warnings
+        run: cargo clippy --locked --target "$BUILD_TARGET" --all-targets -- -D warnings
 
       - name: Test native UI behavior
         if: runner.os == 'Linux'
-        run: cargo test --manifest-path dispatch-rs/Cargo.toml --locked --bin dispatch
+        run: cargo test --locked --bin dispatch
 
       - name: Build native desktop release
         env:
           BUILD_TARGET: ${{ matrix.target }}
-        run: cargo build --manifest-path dispatch-rs/Cargo.toml --locked --release --target "$BUILD_TARGET" --bin dispatch
+        run: cargo build --locked --release --target "$BUILD_TARGET" --bin dispatch
 
       - name: Package native release
         env:
@@ -117,7 +116,7 @@ jobs:
         run: |
           python .github/scripts/release.py package \
             --platform "$RELEASE_PLATFORM" --version "$DISPATCH_VERSION" \
-            --binary "dispatch-rs/target/$BUILD_TARGET/release/$BUILD_BINARY" --output dist
+            --binary "target/$BUILD_TARGET/release/$BUILD_BINARY" --output dist
 
       - name: Upload native release archive
         uses: actions/upload-artifact@v7

@@ -31,8 +31,8 @@ def release_version(tag):
 
 def set_version(root, tag):
     version = release_version(tag)
-    manifest = root / "dispatch-rs/Cargo.toml"
-    lockfile = root / "dispatch-rs/Cargo.lock"
+    manifest = root / "Cargo.toml"
+    lockfile = root / "Cargo.lock"
     manifest_text = manifest.read_text(encoding="utf-8")
     name = tomllib.loads(manifest_text)["package"]["name"]
     lock_text = lockfile.read_text(encoding="utf-8")
@@ -54,10 +54,10 @@ def set_version(root, tag):
 def copy_resources(root, destination):
     destination.mkdir(parents=True, exist_ok=True)
     for source, name in [
-        ("arch/LICENSE", "LICENSE"),
-        ("dispatch-rs/LICENSE-APACHE", "LICENSE-APACHE"),
-        ("dispatch-rs/THIRD_PARTY.md", "THIRD_PARTY.md"),
-        ("dispatch-rs/assets/fonts/OFL.txt", "OFL.txt"),
+        ("LICENSE", "LICENSE"),
+        ("LICENSE-APACHE", "LICENSE-APACHE"),
+        ("THIRD_PARTY.md", "THIRD_PARTY.md"),
+        ("assets/fonts/OFL.txt", "OFL.txt"),
         ("README.md", "README.md"),
     ]:
         shutil.copyfile(root / source, destination / name)
