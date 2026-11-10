@@ -1,96 +1,60 @@
 # Dispatch
+**A native desktop app for running GitHub Actions workflows in sequence.**
 
-A native Rust desktop app for running GitHub Actions workflows, built with [`gpui-pre`](https://docs.rs/gpui-pre/0.3.11/gpui/). Connect repository workspaces, inspect the latest run of each workflow, and dispatch an ordered queue. Each workflow must succeed before the next one starts.
+Dispatch connects your GitHub repositories, inspects your workflow history, and lets you build ordered execution queues. It ensures that every workflow in your batch succeeds before the next one begins, making it perfect for complex deployment pipelines or dependent automated tasks. 
 
-Dispatch talks directly to GitHub. The Rust project is at the repository root.
+Built as a fast, native desktop application, Dispatch gives you a lightweight, responsive alternative to managing workflows directly in the browser.
 
-## Run
+---
 
-Install Rust 1.98 or newer and [just](https://github.com/casey/just), then run from the repository root:
+## Key Features
 
-```sh
-just run
-```
+*   **Sequential Workflow Queues:** Select multiple workflows to run in a specific order. If one fails, cancels, or times out, the rest of the queue is automatically halted.
+*   **Dynamic Input Forms:** Automatically generates clean input forms (text, dropdowns, booleans, numbers) based on your workflow definitions. Drafts are saved per workspace.
+*   **Cross-Repository Monitoring:** Dispatch checks your connected repositories for active runs before launching, helping prevent accidental overlaps or resource conflicts.
+*   **Visual Recency Tracking:** Color-coded workflow names instantly show how long it's been since the last run (e.g., green for <12 hours, red for >7 days) alongside standard success/failure badges.
+*   **True Native Experience:** Enjoy a smooth, fast interface without the overhead of a web browser. Dispatch supports native text editing, clipboard shortcuts, and system integrations.
 
-Without just:
+---
 
-```sh
-cargo run
-```
+## Getting Started
 
-GPUI uses the native graphics and windowing libraries for each platform. Linux builds enable Wayland and X11 and require a C/C++ toolchain, pkg-config, Fontconfig, FreeType, xkbcommon, and the corresponding development libraries. Running the desktop app requires a graphical session and a compatible graphics driver. The first build compiles GPUI and its graphics dependencies.
+### 1. Install & Authenticate
+Download the latest release for macOS, Windows, or Linux. Before opening the app, authenticate with GitHub:
+*   **Option A:** Run `gh auth login --hostname github.com` in your terminal.
+*   **Option B:** Provide a `GH_TOKEN` or `GITHUB_TOKEN` in your application environment.
 
-```sh
-just build       # Release binary in target/release/dispatch
-just fmt         # Format, then run strict Clippy checks
-just check       # Check formatting and run strict Clippy checks
-just test        # Check formatting, run Clippy, then run all tests
-```
+*(Note: Dispatch requires **Actions: Write** and **Contents: Read** permissions to execute and inspect workflows on your private repositories).*
 
-## Releases
+### 2. Connect Your Workspaces
+Open Dispatch and click **Add workspace**. Enter your `owner/repository` name or paste the GitHub URL. You can save multiple repositories and easily switch between them using the sidebar. Each workspace remembers its preferred branch, selected workflows, and draft inputs.
 
-Version tags build the native Rust app for Linux x64, Windows x64, and macOS Intel and Apple Silicon. Releases contain `dispatch-workflows-VERSION-PLATFORM` archives and `SHA256SUMS`. Linux archives contain the `dispatch` executable, Windows archives contain `dispatch.exe`, and macOS archives contain `Dispatch.app`.
+### 3. Select and Run
+1. Choose your target branch and click **Save branch**.
+2. Search and select your workflows. Enable **Allow multiple workflows** to build a sequential queue.
+3. Click **Options** to fill in any required inputs for your workflows.
+4. Click **Run**. Dispatch will validate everything and launch your queue!
 
-The stable `dispatch-workflows-bin` AUR package installs the Linux release as `dispatch-workflows`, together with its desktop entry, icon, and licenses. Release packaging checks can be run with `python3 -m unittest discover -s .github/scripts -p 'test_*.py'`.
+---
 
-## Connect GitHub
+## How the Queue Works
 
-Authenticate before opening Dispatch:
+*   **Strict Execution Order:** Workflows run exactly in the order you selected them. 
+*   **Smart Halting:** A failure, cancellation, or unexpected error instantly stops the batch. Dispatch does not automatically retry failed workflows.
+*   **Safety First:** You can use the **Stop after current workflow** button to let an active job finish while discarding the rest of the queue. *(Note: This does not cancel jobs that are already running on GitHub).*
+*   **Keep the App Open:** Dispatch monitors your workflows in real-time by polling GitHub. Keep the application running while your queue executes. Closing the app will stop monitoring (though your already-dispatched GitHub jobs will continue running).
 
-```sh
-gh auth login --hostname github.com
-```
+---
 
-Alternatively, provide `GH_TOKEN` or `GITHUB_TOKEN` in the application environment. Dispatch reads credentials at startup and keeps them in memory. Credentials are never written to workspace settings. Restart the app after changing authentication.
+## Workspace & App Settings
 
-Click **Add workspace**, enter `owner/repository` or its `https://github.com` URL, and connect. Private repositories require authentication. Running workflows requires Actions write access and Contents read access. Only GitHub.com is supported.
+*   **Branch Management:** Your preferred branches and workflow inputs are saved locally as drafts. 
+*   **Workspace Management:** Add or remove repositories via **Workspace settings**. Changes to your saved workspaces will automatically wait until your current queue finishes running.
+*   **Data & Privacy:** Credentials are read at startup and kept securely in memory—they are never written to your local workspace settings.
 
-## Workspaces and run options
+---
 
-- Switch saved repositories using the sidebar. Each workspace keeps its branch, selection, search, filters, and input drafts separate.
-- The branch must exist in the repository. Click **Save branch** to validate and persist a branch preference.
-- Select one workflow, or enable **Allow multiple workflows** to build a batch. Selection order is execution order. Use the queue controls to reorder or remove items.
-- Click **Options** to prepare branch-specific inputs. Clicking **Run** walks through the selected workflows' input forms before launching. String, boolean, number, choice, and environment inputs are supported, including required values and defaults.
-- Dispatch validates every selected workflow and input before sending the first dispatch. Workflows must be active and support `workflow_dispatch`. Dispatch also checks the repository's default branch when running a different branch.
-- Workflow name colors show recency, separately from the result badge. Green means less than 12 hours, yellow means 12–24 hours, gray means 1–7 days, and red means more than 7 days. Workflows without a run are labeled **Never run**.
-- Search matches workflow names and paths. The filter and sort buttons cycle through their available modes. **Latest activity** lists the latest run of each workflow, newest first.
-- Run timestamps and execution links open the corresponding run on GitHub.
-- **Workspace settings** removes saved workspaces locally. Workspace additions and removals wait until the running queue finishes.
-
-## Queue behavior
-
-One queue runs at a time across saved workspaces. Dispatch checks other saved repositories for active runs before launch and again before each dispatch. It waits for active runs in the target repository before starting the next selected workflow.
-
-A failure, cancellation, non-successful conclusion, monitoring error, or uncertain dispatch response stops the batch and skips pending workflows. Dispatch never automatically retries a workflow dispatch. A dispatch must return a valid workflow run ID. Missing IDs or mismatched run details also stop the batch; Dispatch monitors only the ID returned by its dispatch request.
-
-**Stop after current workflow** keeps monitoring a workflow already dispatched and skips pending items. It does not cancel runs on GitHub. Keep Dispatch open while a queue runs. Closing the window during execution asks before quitting. Quitting discards the queue and stops monitoring; already dispatched GitHub runs continue. Queues are held in memory and never resume automatically.
-
-The idle wait limit is 30 minutes and monitoring is 24 hours. Monitoring polls GitHub every 10 seconds. Workflow metadata is cached for at least 30 seconds, or 3 seconds per workflow for larger repositories. **Refresh** bypasses that cache.
-
-Exclusivity is best effort because GitHub provides no atomic repository-wide dispatch lock. Other callers can start runs between checks. Use GitHub Actions `concurrency` when exclusivity must cover every caller. A file lock prevents two native Dispatch instances from sharing one configuration directory.
-
-## Settings
-
-Native workspace settings use version 2 JSON. The desktop app saves `config.json` in the operating system's application configuration directory for `dispatch`. Set `DATA_DIR` to choose a different configuration directory. `GITHUB_REPO=owner/repository` bootstraps a workspace only when there is no saved configuration.
-
-Dispatch reads only its configured settings file. Invalid or unsupported settings produce an error and are not overwritten.
-
-## Verification and source map
-
-The Rust tests use fake GitHub data and temporary settings. They never dispatch real workflows. Linux tests also lay out and exercise the native views and queue controls using GPUI's headless platform.
-
-An optional visual test renders the native interface offscreen using a real GPU or software Vulkan adapter. It uses sample repositories and writes previews at desktop and compact window sizes:
-
-```sh
-DISPATCH_PREVIEW_DIR=artifacts/native cargo test --features visual-tests --bin dispatch render_desktop_previews -- --ignored
-```
-
-The UI bundles its fonts and SVG icons so typography and controls render consistently across systems.
-
-- `src/model.rs`: repository and branch validation, workflow inputs, run metadata and recency.
-- `src/config.rs`: atomic settings writes and instance locking.
-- `src/github.rs`: authentication and GitHub REST requests.
-- `src/runner.rs`: preflight validation, sequential dispatch and run tracking.
-- `src/service.rs`: background requests, caching and workspace commands.
-- `src/ui.rs`: native workflow list, workspace drafts, input forms and queue controls.
-- `src/input.rs`: native text editing, selection, clipboard and IME handling.
+### System Requirements
+*   **OS:** macOS (Intel & Apple Silicon), Windows (x64), and Linux (x64).
+*   **GitHub:** Supports standard GitHub.com repositories (GitHub Enterprise Server is not currently supported).
+*   **Network:** Requires an active internet connection to communicate with the GitHub API.
