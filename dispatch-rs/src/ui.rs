@@ -2,7 +2,7 @@ use crate::input::TextInput;
 use dispatch_rs::{
     config::Workspace,
     model::*,
-    runner::Queue,
+    runner::{Queue, QueueItem},
     service::{Command, Handle, Snapshot},
 };
 use gpui::{prelude::*, *};
@@ -877,11 +877,19 @@ impl Dispatch {
     fn queue_panel(&self, compact: bool, cx: &mut Context<Self>) -> impl IntoElement {
         let d = self.draft();
         let blocked = self.blocked();
-        let selected = d.map(|d| d.selected.clone()).unwrap_or_default();
         let rows = self.active().and_then(|w| self.state.workflows.get(&w.id));
         let own = self
             .active()
             .is_some_and(|w| w.id == self.queue.workspace_id);
+        let selected = if own && self.queue.running && !self.queue.items.is_empty() {
+            self.queue
+                .items
+                .iter()
+                .map(|item| item.workflow_id)
+                .collect()
+        } else {
+            d.map(|d| d.selected.clone()).unwrap_or_default()
+        };
         let padding = if compact { 16. } else { 20. };
         let branch = d.map(|d| d.branch.read(cx).value()).unwrap_or_default();
         let saved = self
@@ -910,23 +918,38 @@ impl Dispatch {
                 .when(selected.is_empty(),|d|d.child(div().py(px(24.)).flex().flex_col().items_center().gap(px(10.)).text_size(px(12.)).text_color(rgb(0x506158))
                     .child(icon("queue",32.)).child("Select a workflow to get started.")))
                 .children(selected.iter().enumerate().map(|(i,id)| {
-                    let name = rows.and_then(|rows|rows.iter().find(|w|w.id == *id)).map(|w|w.name.clone()).unwrap_or_default();
+                    let execution = if own {
+                        self.queue.items.iter().find(|item| item.workflow_id == *id && (self.queue.running || item.branch == branch))
+                    } else { None };
+                    let name = rows.and_then(|rows|rows.iter().find(|w|w.id == *id)).map(|w|w.name.clone())
+                        .or_else(||execution.map(|item|item.name.clone())).unwrap_or_default();
+                    let detail = if let Some(item) = execution {
+                        let status = execution_status(item);
+                        let color = match status.as_str() {
+                            "Passed" => 0x27684b,
+                            "Failed" | "Cancelled" | "Timed out" | "Needs action" => 0x9c3935,
+                            "Running" | "Starting" | "Queued" | "Waiting" => 0x2e6487,
+                            _ => 0x617167,
+                        };
+                        let url = item.run.as_ref().and_then(|run| safe_url(&run.html_url));
+                        self.link(("execution-run",*id),status,Action::Open(url.clone().unwrap_or_default()),url.is_some(),cx)
+                            .mt(px(3.)).h(px(15.)).text_size(px(10.)).line_height(px(15.)).text_color(rgb(color))
+                            .when(url.is_none(),|d|d.opacity(1.)).into_any_element()
+                    } else {
+                        div().mt(px(3.)).text_size(px(10.)).line_height(px(15.)).text_color(rgb(0x617167))
+                            .child(if i == 0 { "Starts first" } else { "After the previous workflow succeeds" }).into_any_element()
+                    };
                     div().mt(px(if i == 0 { 24. } else { 12. })).flex().items_start().gap(px(10.))
                         .child(div().size(px(24.)).flex_shrink_0().flex().items_center().justify_center().rounded_full().bg(rgb(0xeff4f0)).border_1().border_color(rgb(0xd8e3dc)).text_size(px(11.)).text_color(rgb(0x5d7164)).child((i+1).to_string()))
                         .child(div().flex_1().min_w_0().flex().flex_col()
                             .child(div().font_weight(FontWeight::SEMIBOLD).text_size(px(12.)).line_height(px(18.)).child(name))
-                            .child(div().mt(px(3.)).text_size(px(10.)).line_height(px(15.)).text_color(rgb(0x617167)).child(if i == 0 { "Starts first" } else { "After the previous workflow succeeds" }))
+                            .child(detail)
                             .child(div().mt(px(6.)).flex().items_center().gap(px(2.))
                                 .child(self.icon_button(("up",*id),"up","Move up",Action::Move(i,true),!blocked && i > 0,cx).size(px(24.)))
                                 .child(self.icon_button(("down",*id),"down","Move down",Action::Move(i,false),!blocked && i+1 < selected.len(),cx).size(px(24.)))
                                 .child(self.icon_button(("drop",*id),"cross","Remove from selection",Action::Drop(*id),!blocked,cx).size(px(24.)))
                                 .child(self.control(("options",*id),"Run options",Action::Options(*id),!blocked,false,cx).h(px(24.)).px(px(6.)).text_size(px(10.)).font_weight(FontWeight::NORMAL))))
                 })))
-            .when(own && !self.queue.items.is_empty(),|el|el.child(div().px(px(padding)).pb(px(16.)).flex().flex_col().gap(px(8.))
-                .child(eyebrow("EXECUTION"))
-                .children(self.queue.items.iter().enumerate().map(|(i,item)|div().flex().flex_col().gap(px(4.))
-                    .child(muted(item.name.clone()))
-                    .child(self.link(("execution-run",i),item.run.as_ref().map(|r|format!("{} · {}",item.status,r.result())).unwrap_or_else(||item.status.clone()),Action::Open(item.run.as_ref().map(|r|r.html_url.clone()).unwrap_or_default()),item.run.as_ref().and_then(|r|safe_url(&r.html_url)).is_some(),cx).text_size(px(11.)))))))
             .when_some(if own { self.queue.error.as_ref() } else { None },|d,error|d.child(div().px(px(padding)).pb(px(12.)).text_size(px(12.)).text_color(rgb(0xb33939)).child(error.clone())))
             .child(div().px(px(padding)).pb(px(padding)).flex().flex_col()
                 .child(self.button("launch",Action::Launch,!blocked && !selected.is_empty(),cx).h(px(44.)).px(px(16.)).gap(px(8.)).rounded(px(6.)).bg(rgb(GREEN)).text_color(rgb(0xffffff)).font_weight(FontWeight::SEMIBOLD).text_size(px(13.))
@@ -1297,6 +1320,29 @@ fn duration(seconds: i64) -> String {
         format!("{seconds}s")
     } else {
         format!("{}m {}s", seconds / 60, seconds % 60)
+    }
+}
+fn execution_status(item: &QueueItem) -> String {
+    let status = if item.status == "failed" {
+        "failure"
+    } else {
+        item.run.as_ref().map(Run::result).unwrap_or(&item.status)
+    };
+    match status {
+        "in_progress" | "in progress" => "Running".into(),
+        "success" => "Passed".into(),
+        "failure" => "Failed".into(),
+        "pending" => "Pending".into(),
+        "queued" => "Queued".into(),
+        "waiting" => "Waiting".into(),
+        "waiting for repository" => "Waiting for existing runs".into(),
+        "dispatching" => "Starting".into(),
+        "completed" => "Completed".into(),
+        "skipped" => "Skipped".into(),
+        "cancelled" => "Cancelled".into(),
+        "timed_out" => "Timed out".into(),
+        "action_required" => "Needs action".into(),
+        _ => status.replace('_', " "),
     }
 }
 fn badge(result: &str) -> Div {
