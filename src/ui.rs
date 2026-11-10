@@ -603,7 +603,7 @@ impl Dispatch {
             .border_r_1()
             .border_color(rgb(LINE))
             .px(px(if compact { 16. } else { 20. }))
-            .py(px(32.))
+            // .py(px(32.))
             .flex()
             .flex_col()
             .child(
@@ -612,44 +612,18 @@ impl Dispatch {
                     .flex_shrink_0()
                     .flex()
                     .items_center()
-                    .gap(px(10.))
-                    .child(
-                        div()
-                            .w(px(32.))
-                            .h(px(36.))
-                            .rounded(px(8.))
-                            .bg(rgb(GREEN))
-                            .text_color(rgb(0xffffff))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .child(icon("logo", 27.).text_color(rgb(0xffffff))),
-                    )
                     .child(
                         div()
                             .font_weight(FontWeight::BOLD)
                             .text_size(px(if compact { 21. } else { 24. }))
                             .text_color(rgb(0x1e2927))
                             .child("dispatch"),
-                    )
-                    .child(
-                        div()
-                            .ml_auto()
-                            .px(px(4.))
-                            .py(px(2.))
-                            .text_size(px(8.))
-                            .line_height(px(12.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .border_1()
-                            .border_color(rgb(0xb3bdb8))
-                            .rounded(px(3.))
-                            .text_color(rgb(0x606e68))
-                            .child("L O C A L"),
                     ),
             )
             .child(
                 div()
-                    .mt(px(48.))
+                    // .mt(px(24.))
+                    // .mt(px(48.))
                     .mb(px(12.))
                     .px(px(8.))
                     .child(eyebrow("W O R K S P A C E S")),
@@ -769,6 +743,7 @@ impl Dispatch {
                     .child(
                         self.link("quit", "Quit Dispatch", Action::Quit, true, cx)
                             .text_size(px(10.))
+                            .mb(px(20.))
                             .text_color(rgb(MUTED)),
                     ),
             )
