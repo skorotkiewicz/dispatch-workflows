@@ -4,6 +4,8 @@ A native desktop app for running GitHub Actions workflows in sequence.
 
 Connect repository workspaces, inspect workflow history, and build an ordered queue. Each workflow must succeed before the next one starts.
 
+![Dispatch desktop interface](desktop.png)
+
 ## Features
 
 - Run workflows in selection order, with controls to reorder or remove queued items.
