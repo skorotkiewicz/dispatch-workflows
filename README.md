@@ -1,60 +1,91 @@
 # Dispatch
-**A native desktop app for running GitHub Actions workflows in sequence.**
 
-Dispatch connects your GitHub repositories, inspects your workflow history, and lets you build ordered execution queues. It ensures that every workflow in your batch succeeds before the next one begins, making it perfect for complex deployment pipelines or dependent automated tasks. 
+A native desktop app for running GitHub Actions workflows in sequence.
 
-Built as a fast, native desktop application, Dispatch gives you a lightweight, responsive alternative to managing workflows directly in the browser.
+Connect repository workspaces, inspect workflow history, and build an ordered queue. Each workflow must succeed before the next one starts.
 
----
+## Features
 
-## Key Features
+- Run workflows in selection order, with controls to reorder or remove queued items.
+- Fill in branch-specific workflow inputs, including text, boolean, number, choice, and environment inputs.
+- Check connected repositories for active runs before launching and before each dispatch.
+- See the latest run of each workflow, with separate recency colors and result badges.
+- Edit text with native selection, clipboard shortcuts, and input method support.
 
-*   **Sequential Workflow Queues:** Select multiple workflows to run in a specific order. If one fails, cancels, or times out, the rest of the queue is automatically halted.
-*   **Dynamic Input Forms:** Automatically generates clean input forms (text, dropdowns, booleans, numbers) based on your workflow definitions. Drafts are saved per workspace.
-*   **Cross-Repository Monitoring:** Dispatch checks your connected repositories for active runs before launching, helping prevent accidental overlaps or resource conflicts.
-*   **Visual Recency Tracking:** Color-coded workflow names instantly show how long it's been since the last run (e.g., green for <12 hours, red for >7 days) alongside standard success/failure badges.
-*   **True Native Experience:** Enjoy a smooth, fast interface without the overhead of a web browser. Dispatch supports native text editing, clipboard shortcuts, and system integrations.
+## Getting started
 
----
+### 1. Install and authenticate
 
-## Getting Started
+Download the [latest release](https://github.com/skorotkiewicz/dispatch-workflows/releases/latest) for Linux x64, Windows x64, or macOS Intel or Apple Silicon. Linux archives contain `dispatch`, Windows archives contain `dispatch.exe`, and macOS archives contain `Dispatch.app`. Each release includes `SHA256SUMS` for verifying the archives.
 
-### 1. Install & Authenticate
-Download the latest release for macOS, Windows, or Linux. Before opening the app, authenticate with GitHub:
-*   **Option A:** Run `gh auth login --hostname github.com` in your terminal.
-*   **Option B:** Provide a `GH_TOKEN` or `GITHUB_TOKEN` in your application environment.
+The `dispatch-workflows-bin` AUR package installs the Linux app as `dispatch-workflows`.
 
-*(Note: Dispatch requires **Actions: Write** and **Contents: Read** permissions to execute and inspect workflows on your private repositories).*
+Authenticate before opening Dispatch:
 
-### 2. Connect Your Workspaces
-Open Dispatch and click **Add workspace**. Enter your `owner/repository` name or paste the GitHub URL. You can save multiple repositories and easily switch between them using the sidebar. Each workspace remembers its preferred branch, selected workflows, and draft inputs.
+```sh
+gh auth login --hostname github.com
+```
 
-### 3. Select and Run
-1. Choose your target branch and click **Save branch**.
-2. Search and select your workflows. Enable **Allow multiple workflows** to build a sequential queue.
-3. Click **Options** to fill in any required inputs for your workflows.
-4. Click **Run**. Dispatch will validate everything and launch your queue!
+Alternatively, provide `GH_TOKEN` or `GITHUB_TOKEN` in the application environment. Running workflows requires Actions write access and Contents read access. Private repositories require authentication. Restart Dispatch after changing authentication.
 
----
+### 2. Connect your workspaces
 
-## How the Queue Works
+Click **Add workspace**, enter `owner/repository` or its GitHub URL, and connect. Switch saved repositories using the sidebar.
 
-*   **Strict Execution Order:** Workflows run exactly in the order you selected them. 
-*   **Smart Halting:** A failure, cancellation, or unexpected error instantly stops the batch. Dispatch does not automatically retry failed workflows.
-*   **Safety First:** You can use the **Stop after current workflow** button to let an active job finish while discarding the rest of the queue. *(Note: This does not cancel jobs that are already running on GitHub).*
-*   **Keep the App Open:** Dispatch monitors your workflows in real-time by polling GitHub. Keep the application running while your queue executes. Closing the app will stop monitoring (though your already-dispatched GitHub jobs will continue running).
+Repositories and saved branch preferences survive restarting the app. Selections, search, filters, and input drafts stay separate per workspace while Dispatch is open and are cleared when it closes.
 
----
+### 3. Select and run
 
-## Workspace & App Settings
+1. Choose an existing branch under **Run on branch**. Click **Save** when it appears to persist the branch preference.
+2. Search and select a workflow. Enable **Allow multiple workflows** to build a sequential queue.
+3. Click **Run options** to prepare inputs for a selected workflow.
+4. Click **Run workflow** or **Run workflows**. Dispatch walks through the input forms and validates every selected workflow before launching.
 
-*   **Branch Management:** Your preferred branches and workflow inputs are saved locally as drafts. 
-*   **Workspace Management:** Add or remove repositories via **Workspace settings**. Changes to your saved workspaces will automatically wait until your current queue finishes running.
-*   **Data & Privacy:** Credentials are read at startup and kept securely in memory—they are never written to your local workspace settings.
+Workflows must be active and support `workflow_dispatch` on the selected branch and the repository's default branch.
 
----
+## Workflow history
 
-### System Requirements
-*   **OS:** macOS (Intel & Apple Silicon), Windows (x64), and Linux (x64).
-*   **GitHub:** Supports standard GitHub.com repositories (GitHub Enterprise Server is not currently supported).
-*   **Network:** Requires an active internet connection to communicate with the GitHub API.
+Workflow name colors show how long it has been since the last run, separately from whether it passed:
+
+| Color | Last run |
+| --- | --- |
+| Green | Less than 12 hours ago |
+| Yellow | 12 to 24 hours ago |
+| Gray | 1 to 7 days ago |
+| Red | More than 7 days ago |
+
+Workflows without a run are labeled **Never run**. Search matches workflow names and paths. The filter and sort buttons cycle through their available modes. **Latest activity** lists the latest run of each workflow, newest first. Run timestamps and execution links open the corresponding run on GitHub.
+
+Workflow metadata is cached for at least 30 seconds, or 3 seconds per workflow for larger repositories. **Refresh** bypasses that cache.
+
+## Queue behavior
+
+One queue runs at a time across saved workspaces. Dispatch checks other saved repositories for active runs before launch and again before each dispatch. It waits for active runs in the target repository before starting the next selected workflow.
+
+A failure, cancellation, non-successful conclusion, monitoring error, or uncertain dispatch response stops the batch and skips pending workflows. Dispatch never automatically retries a workflow dispatch. Missing run IDs or mismatched run details also stop the batch. Dispatch monitors only the run ID returned by its dispatch request.
+
+**Stop after current workflow** keeps monitoring a workflow already dispatched and skips pending items. It does not cancel runs on GitHub.
+
+Keep Dispatch open while a queue runs. Closing the window during execution asks before quitting. Quitting discards the queue and stops monitoring; already dispatched GitHub runs continue. Queues are held in memory and never resume automatically.
+
+The idle wait limit is 30 minutes and monitoring is limited to 24 hours. Dispatch polls running workflows every 10 seconds.
+
+Exclusivity is best effort because GitHub provides no atomic repository-wide dispatch lock. Other callers can start runs between checks. Use GitHub Actions `concurrency` when exclusivity must cover every caller.
+
+## Workspaces and settings
+
+Use **Add workspace** to connect a repository and **Workspace settings** to remove one locally. Removing a workspace does not change its GitHub repository or workflows. Adding and removing workspaces is disabled while a queue runs; try again after it finishes.
+
+Dispatch saves repositories, the active workspace, and saved branch preferences in `config.json` in the operating system's application configuration directory for `dispatch`. Set `DATA_DIR` to choose a different configuration directory. `GITHUB_REPO=owner/repository` bootstraps a workspace only when there is no saved configuration.
+
+Settings use version 2 JSON. Invalid or unsupported settings produce an error and are not overwritten. A file lock prevents two Dispatch instances from sharing one configuration directory.
+
+Credentials are read at startup and kept in memory. They are never written to workspace settings.
+
+## Requirements
+
+- Linux x64, Windows x64, or macOS Intel or Apple Silicon.
+- A graphical session and compatible graphics driver.
+- An internet connection to GitHub.com. GitHub Enterprise Server is not supported.
+
+For development setup, checks, and release packaging, see [Contributing](CONTRIBUTING.md).
